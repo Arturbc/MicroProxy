@@ -1,0 +1,6 @@
+@MicroProxy_HostAddress = http://localhost:5133
+
+GET {{MicroProxy_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
