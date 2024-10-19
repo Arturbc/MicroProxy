@@ -1,0 +1,8 @@
+﻿################################################################################
+# Este arquivo .gitignore foi criado automaticamente pelo Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs
+/MicroProxy/bin/Debug/net8.0
+/MicroProxy/obj/Debug/net8.0
+/MicroProxy/obj
