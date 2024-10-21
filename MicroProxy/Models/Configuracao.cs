@@ -21,6 +21,8 @@ namespace MicroProxy.Models
 
             UrlAlvo = ConfigurationRoot.GetValue<string>("UrlAlvo")!.TrimEnd('/');
             Ip = ConfigurationRoot.GetValue<string>("IP");
+            CertificadoPrivado = ConfigurationRoot.GetValue<string>("CertificadoPrivado");
+            CertificadoPrivadoSenha = ConfigurationRoot.GetValue<string>("CertificadoPrivadoSenha");
 
             if ((Ip ?? "") != "")
             {
