@@ -7,3 +7,6 @@
 /MicroProxy/obj/Debug/net8.0
 /MicroProxy/obj
 /MicroProxy/bin/Release/net8.0
+/MicroProxy/MicroProxy.csproj.user
+/MicroProxy/Properties/PublishProfiles
+/MicroProxy/.config
