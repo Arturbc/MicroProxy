@@ -8,6 +8,8 @@ namespace MicroProxy.Models
         public string? Ip { get; protected set; } = null!;
         public string? Porta { get; protected set; } = null!;
         public string UrlAlvo { get; protected set; }
+        public string? CertificadoPrivado { get; protected set; }
+        public string? CertificadoPrivadoSenha { get; protected set; }
 
         public Configuracao()
         {

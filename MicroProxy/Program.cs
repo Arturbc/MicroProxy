@@ -7,7 +7,7 @@ using System.Text;
 
 internal static class Program
 {
-    static CookieContainer cookieContainer = new();
+    static readonly CookieContainer CookieContainer = new();
     private static void Main(string[] args)
     {
         Configuracao configuracao = new();
@@ -15,11 +15,38 @@ internal static class Program
 
         // Add services to the container.
 
+
+#if !DEBUG
+        builder.WebHost.ConfigureKestrel((context, serverOptions) =>
+        {
+            string ipStr = configuracao.Ip ?? IPAddress.Loopback.ToString();
+            int porta = 80;
+            IPAddress ip = IPAddress.Parse(ipStr);
+
+            if (configuracao.CertificadoPrivado != null && configuracao.CertificadoPrivadoSenha != null)
+            {
+                porta = int.Parse(configuracao.Porta ?? "443");
+                serverOptions.Listen(ip, porta, listenOptions =>
+                {
+                    listenOptions.UseHttps(configuracao.CertificadoPrivado, configuracao.CertificadoPrivadoSenha);
+                });
+            }
+            else
+            {
+                porta = int.Parse(configuracao.Porta ?? porta.ToString());
+                serverOptions.Listen(ip, porta);
+            }
+        });
+#endif
+
         var app = builder.Build();
 
         // Configure the HTTP request pipeline.
 
-        app.UseHttpsRedirection();
+        if (configuracao.CertificadoPrivado != null)
+        {
+            app.UseHttpsRedirection();
+        }
 
         app.Use(async (context, next) =>
         {
@@ -30,7 +57,7 @@ internal static class Program
     }
     private static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
     {
-        HttpClientHandler clientHandler = new() { CookieContainer = cookieContainer };
+        HttpClientHandler clientHandler = new() { CookieContainer = CookieContainer };
         var request = context.Request;
         var headersReq = request.Headers;
         string hostAlvo = new Uri(request.GetDisplayUrl()).Host;
