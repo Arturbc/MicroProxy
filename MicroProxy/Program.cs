@@ -4,8 +4,9 @@ using Microsoft.Extensions.Primitives;
 using System.Net;
 using System.Net.Mime;
 using System.Text;
+using System.Text.RegularExpressions;
 
-internal static class Program
+internal static partial class Program
 {
     static readonly CookieContainer CookieContainer = new();
     private static void Main(string[] args)
@@ -76,7 +77,7 @@ internal static class Program
         {
             request.EnableBuffering();
             body = await new StreamReader(request.Body).ReadToEndAsync();
-            requestMessage.Content = new StringContent(body, Encoding.UTF8, headersReq.ContentType.ToString());
+            requestMessage.Content = new StringContent(body, Encoding.UTF8, MediaTypeNameRegex().Match(headersReq.ContentType.ToString()).Value);
         }
 
         using var response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
@@ -104,4 +105,7 @@ internal static class Program
 
         await context.Response.CompleteAsync();
     }
+
+    [GeneratedRegex("[^;]+")]
+    private static partial Regex MediaTypeNameRegex();
 }
