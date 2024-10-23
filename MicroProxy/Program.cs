@@ -1,6 +1,7 @@
 using MicroProxy.Models;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
+using System.Linq;
 using System.Net;
 using System.Net.Mime;
 using System.Text;
@@ -66,11 +67,11 @@ internal static partial class Program
         string hostAlvo = new Uri(request.GetDisplayUrl()).Host;
         HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), $"{configuracao.UrlAlvo}{request.GetEncodedPathAndQuery()}");
 
-        foreach (var chave in headersReq.Keys)
+        foreach (var item in headersReq)
         {
-            var valor = !chave.Equals("Host", StringComparison.CurrentCultureIgnoreCase) ? headersReq[chave].ToArray<string>() : [hostAlvo];
+            var valor = !item.Key.Equals("Host", StringComparison.CurrentCultureIgnoreCase) ? item.Value.ToArray() : [hostAlvo];
 
-            request.Headers.TryAdd(chave, valor);
+            request.Headers.TryAdd(item.Key, valor);
         };
 
         if (request.Method != HttpMethods.Get)
@@ -83,15 +84,17 @@ internal static partial class Program
         using var response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
         using var content = response.Content;
         
-        var headersResposta = response.Headers.Union(response.Content.Headers).ToDictionary();
+        var headersResposta = response.Headers
+            .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
+            .Union(configuracao.ResponseHeadersAdicionais).ToDictionary();
 
-        foreach (var chave in headersResposta.Keys.Where(k => !k.Equals("Transfer-Encoding", StringComparison.CurrentCultureIgnoreCase)))
+        foreach (var item in headersResposta.Where(k => !k.Key.Equals("Transfer-Encoding", StringComparison.CurrentCultureIgnoreCase)))
         {
-            StringValues valores = new(headersResposta[chave].ToArray());
+            StringValues valores = new(item.Value);
 
-            if (!context.Response.Headers.TryAdd(chave, valores))
+            if (!context.Response.Headers.TryAdd(item.Key, valores))
             {
-                context.Response.Headers.Append(chave, valores);
+                context.Response.Headers.Append(item.Key, valores);
             }
         };
 

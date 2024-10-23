@@ -8,6 +8,7 @@ namespace MicroProxy.Models
         public string? Ip { get; protected set; } = null!;
         public string? Porta { get; protected set; } = null!;
         public string UrlAlvo { get; protected set; }
+        public Dictionary<string, string[]> ResponseHeadersAdicionais { get; protected set; }
         public string? CertificadoPrivado { get; protected set; }
         public string? CertificadoPrivadoSenha { get; protected set; }
 
@@ -23,6 +24,7 @@ namespace MicroProxy.Models
             Ip = ConfigurationRoot.GetValue<string>("IP");
             CertificadoPrivado = ConfigurationRoot.GetValue<string>("CertificadoPrivado");
             CertificadoPrivadoSenha = ConfigurationRoot.GetValue<string>("CertificadoPrivadoSenha");
+            ResponseHeadersAdicionais = ConfigurationRoot.GetSection("RequestHeadersAdicionais").Get<Dictionary<string, string[]>>() ?? [];
 
             if ((Ip ?? "") != "")
             {
