@@ -76,7 +76,7 @@ internal static class Program
         {
             request.EnableBuffering();
             body = await new StreamReader(request.Body).ReadToEndAsync();
-            requestMessage.Content = new StringContent(body, Encoding.UTF8, MediaTypeNames.Application.Json);
+            requestMessage.Content = new StringContent(body, Encoding.UTF8, headersReq.ContentType.ToString());
         }
 
         using var response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
