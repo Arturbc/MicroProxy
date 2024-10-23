@@ -2,6 +2,7 @@ using MicroProxy.Models;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
 using System.Net;
+using System.Net.Mime;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -76,6 +77,12 @@ internal static partial class Program
         var headersReq = request.Headers;
         string hostAlvo = new Uri(request.GetDisplayUrl()).Host;
         HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), $"{configuracao.UrlAlvo}{request.GetEncodedPathAndQuery()}");
+        string contentTypeReq = MediaTypeNameRegex().Match(headersReq.ContentType.ToString()).Value;
+
+        if (contentTypeReq == "")
+        {
+            contentTypeReq = MediaTypeNames.Text.Plain;
+        }
 
         foreach (var item in headersReq)
         {
@@ -88,12 +95,12 @@ internal static partial class Program
         {
             request.EnableBuffering();
             body = await new StreamReader(request.Body).ReadToEndAsync();
-            requestMessage.Content = new StringContent(body, Encoding.UTF8, MediaTypeNameRegex().Match(headersReq.ContentType.ToString()).Value);
+            requestMessage.Content = new StringContent(body, Encoding.UTF8, contentTypeReq);
         }
 
         using var response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
         using var content = response.Content;
-        
+
         var headersResposta = response.Headers
             .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
             .Union(configuracao.ResponseHeadersAdicionais).ToDictionary();
