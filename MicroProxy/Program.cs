@@ -58,18 +58,18 @@ internal static class Program
     private static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
     {
         HttpClientHandler clientHandler = new() { CookieContainer = CookieContainer };
+        HttpClient httpClient = new(clientHandler);
+        string body;
         var request = context.Request;
         var headersReq = request.Headers;
         string hostAlvo = new Uri(request.GetDisplayUrl()).Host;
-        HttpClient httpClient = new(clientHandler);
-        string body;
         HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), $"{configuracao.UrlAlvo}{request.GetEncodedPathAndQuery()}");
 
         foreach (var chave in headersReq.Keys)
         {
             var valor = !chave.Equals("Host", StringComparison.CurrentCultureIgnoreCase) ? headersReq[chave].ToArray<string>() : [hostAlvo];
 
-            httpClient.DefaultRequestHeaders.TryAddWithoutValidation(chave, valor);
+            request.Headers.TryAdd(chave, valor);
         };
 
         if (request.Method != HttpMethods.Get)
@@ -79,8 +79,10 @@ internal static class Program
             requestMessage.Content = new StringContent(body, Encoding.UTF8, MediaTypeNames.Application.Json);
         }
 
-        var response = await httpClient.SendAsync(requestMessage);
-        var headersResposta = response.Headers.ToDictionary();
+        using var response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+        using var content = response.Content;
+        
+        var headersResposta = response.Headers.Union(response.Content.Headers).ToDictionary();
 
         foreach (var chave in headersResposta.Keys.Where(k => !k.Equals("Transfer-Encoding", StringComparison.CurrentCultureIgnoreCase)))
         {
@@ -97,10 +99,7 @@ internal static class Program
 
         if (context.Response.StatusCode < 300 || context.Response.StatusCode >= 400)
         {
-            var conteudo = await response.Content.ReadAsByteArrayAsync();
-
-            context.Response.OnStarting(() => context.Response.BodyWriter.WriteAsync(conteudo).AsTask());
-            await context.Response.StartAsync();
+            await content.CopyToAsync(context.Response.Body).ConfigureAwait(false);
         }
 
         await context.Response.CompleteAsync();
