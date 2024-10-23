@@ -1,9 +1,7 @@
 using MicroProxy.Models;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
-using System.Linq;
 using System.Net;
-using System.Net.Mime;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -16,6 +14,16 @@ internal static partial class Program
         var builder = WebApplication.CreateBuilder(args);
 
         // Add services to the container.
+        builder.Services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(builder =>
+            {
+                builder.AllowAnyOrigin()
+                    .AllowAnyHeader()
+                    .AllowAnyMethod()
+                    .AllowCredentials();
+            });
+        });
 
 
 #if !DEBUG
@@ -50,8 +58,10 @@ internal static partial class Program
             app.UseHttpsRedirection();
         }
 
+        app.UseCors();
         app.Use(async (context, next) =>
         {
+            configuracao = new();
             await next.ProcessarRequisicao(context, configuracao);
         });
 
