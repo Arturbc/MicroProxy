@@ -5,6 +5,7 @@ using System.Net;
 
 internal static class Program
 {
+    static string[] HeadersProibidos => ["Transfer-Encoding"];
     static readonly CookieContainer CookieContainer = new();
     private static void Main(string[] args)
     {
@@ -26,7 +27,6 @@ internal static class Program
                 }
             });
         });
-
 
 #if !DEBUG
         builder.WebHost.ConfigureKestrel((context, serverOptions) =>
@@ -71,7 +71,6 @@ internal static class Program
     }
     private static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
     {
-        string[] headersProibidos = ["Transfer-Encoding"];
         string[] propsHeaders = [];
         HttpClientHandler clientHandler = new() { CookieContainer = CookieContainer };
 
@@ -82,9 +81,11 @@ internal static class Program
         }
 
         HttpClient httpClient = new(clientHandler);
-        var request = context.Request;
-        var hostAlvo = new Uri(request.GetDisplayUrl()).Host;
-        var headersReq = request.Headers;
+        HttpRequest request = context.Request;
+        string hostAlvo = new Uri(request.GetDisplayUrl()).Host;
+        Dictionary<string, StringValues> headersReq = request.Headers
+                .Where(hr => !HeadersProibidos.Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
+            .ToDictionary();
         using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), $"{configuracao.UrlAlvo}{request.GetEncodedPathAndQuery()}");
 
         if (request.Method != HttpMethods.Get)
@@ -97,9 +98,9 @@ internal static class Program
             };
         }
 
-        foreach (var item in headersReq.Where(hr => !headersProibidos.Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase))))
+        foreach (var item in headersReq)
         {
-            var valor = !item.Key.Equals("Host", StringComparison.CurrentCultureIgnoreCase) ? item.Value.ToArray() : [hostAlvo];
+            string?[] valor = !item.Key.Equals("Host", StringComparison.CurrentCultureIgnoreCase) ? [.. item.Value] : [hostAlvo];
 
             requestMessage.Headers.TryAddWithoutValidation(item.Key, valor);
 
@@ -109,14 +110,15 @@ internal static class Program
             }
         };
 
-        using var response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
-        using var content = response.Content;
+        using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+        using HttpContent content = response.Content;
+        Dictionary<string, string[]> headersResposta = response.Headers
+                .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
+                .Union(configuracao.ResponseHeadersAdicionais)
+                .Where(hr => !HeadersProibidos.Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
+            .ToDictionary();
 
-        var headersResposta = response.Headers
-            .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
-            .Union(configuracao.ResponseHeadersAdicionais).ToDictionary();
-
-        foreach (var item in headersResposta.Where(hr => !headersProibidos.Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase))))
+        foreach (var item in headersResposta)
         {
             StringValues valores = new(item.Value);
 
