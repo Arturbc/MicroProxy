@@ -2,11 +2,8 @@ using MicroProxy.Models;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
 using System.Net;
-using System.Net.Mime;
-using System.Text;
-using System.Text.RegularExpressions;
 
-internal static partial class Program
+internal static class Program
 {
     static readonly CookieContainer CookieContainer = new();
     private static void Main(string[] args)
@@ -19,9 +16,14 @@ internal static partial class Program
         {
             options.AddDefaultPolicy(builder =>
             {
-                builder.AllowAnyOrigin()
-                    .AllowAnyHeader()
-                    .AllowAnyMethod();
+                builder.WithOrigins(configuracao.AllowOrigins)
+                    .WithHeaders(configuracao.AllowHeaders)
+                    .WithMethods(configuracao.AllowMethods);
+
+                if (!configuracao.AllowOrigins.Contains("*"))
+                {
+                    builder.AllowCredentials();
+                }
             });
         });
 
@@ -69,33 +71,43 @@ internal static partial class Program
     }
     private static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
     {
+        string[] headersProibidos = ["Transfer-Encoding"];
+        string[] propsHeaders = [];
         HttpClientHandler clientHandler = new() { CookieContainer = CookieContainer };
-        HttpClient httpClient = new(clientHandler);
-        string body;
-        var request = context.Request;
-        var headersReq = request.Headers;
-        string hostAlvo = new Uri(request.GetDisplayUrl()).Host;
-        HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), $"{configuracao.UrlAlvo}{request.GetEncodedPathAndQuery()}");
-        string contentTypeReq = MediaTypeNameRegex().Match(headersReq.ContentType.ToString()).Value;
 
-        if (contentTypeReq == "")
+        if (configuracao.IgnorarCertificadoAlvo)
         {
-            contentTypeReq = MediaTypeNames.Text.Plain;
+            clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
+            clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;
         }
 
-        foreach (var item in headersReq)
-        {
-            var valor = !item.Key.Equals("Host", StringComparison.CurrentCultureIgnoreCase) ? item.Value.ToArray() : [hostAlvo];
-
-            request.Headers.TryAdd(item.Key, valor);
-        };
+        HttpClient httpClient = new(clientHandler);
+        var request = context.Request;
+        var hostAlvo = new Uri(request.GetDisplayUrl()).Host;
+        var headersReq = request.Headers;
+        using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), $"{configuracao.UrlAlvo}{request.GetEncodedPathAndQuery()}");
 
         if (request.Method != HttpMethods.Get)
         {
-            request.EnableBuffering();
-            body = await new StreamReader(request.Body).ReadToEndAsync();
-            requestMessage.Content = new StringContent(body, Encoding.UTF8, contentTypeReq);
+            requestMessage.Content = new StreamContent(request.Body);
+
+            foreach (var item in requestMessage.Content.Headers.GetType().GetProperties())
+            {
+                propsHeaders = [.. propsHeaders.Append(item.Name)];
+            };
         }
+
+        foreach (var item in headersReq.Where(hr => !headersProibidos.Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase))))
+        {
+            var valor = !item.Key.Equals("Host", StringComparison.CurrentCultureIgnoreCase) ? item.Value.ToArray() : [hostAlvo];
+
+            requestMessage.Headers.TryAddWithoutValidation(item.Key, valor);
+
+            if (requestMessage.Content != null && propsHeaders.Contains(item.Key.Replace("-", "")))
+            {
+                requestMessage.Content.Headers.TryAddWithoutValidation(item.Key, valor);
+            }
+        };
 
         using var response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
         using var content = response.Content;
@@ -104,7 +116,7 @@ internal static partial class Program
             .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
             .Union(configuracao.ResponseHeadersAdicionais).ToDictionary();
 
-        foreach (var item in headersResposta.Where(k => !k.Key.Equals("Transfer-Encoding", StringComparison.CurrentCultureIgnoreCase)))
+        foreach (var item in headersResposta.Where(hr => !headersProibidos.Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase))))
         {
             StringValues valores = new(item.Value);
 
@@ -124,7 +136,4 @@ internal static partial class Program
 
         await context.Response.CompleteAsync();
     }
-
-    [GeneratedRegex("[^;]+")]
-    private static partial Regex MediaTypeNameRegex();
 }
