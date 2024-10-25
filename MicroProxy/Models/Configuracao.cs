@@ -7,11 +7,10 @@ namespace MicroProxy.Models
         protected IConfigurationRoot ConfigurationRoot { get; set; } = null!;
         public string? Ip { get; protected set; } = null!;
         public string? Porta { get; protected set; } = null!;
-        public string UrlAlvo { get; protected set; }
-        public bool IgnorarCertificadoAlvo { get; protected set; }
-        public string? CertificadoPrivado { get; protected set; }
-        public string? CertificadoPrivadoSenha { get; protected set; }
-        public Dictionary<string, string[]> ResponseHeadersAdicionais { get; protected set; }
+        public string? PortaHttpRedirect { get; protected set; } = null!;
+        public string? CertificadoPrivado { get; set; }
+        public string? CertificadoPrivadoSenha { get; set; }
+        public Site[] Sites { get; protected set; }
         public string[] AllowOrigins { get; protected set; }
         public string[] AllowHeaders { get; protected set; }
         public string[] AllowMethods { get; protected set; }
@@ -24,17 +23,21 @@ namespace MicroProxy.Models
             configurationBuilder0.AddJsonFile(path0, false);
             ConfigurationRoot = configurationBuilder0.Build();
 
-            UrlAlvo = ConfigurationRoot.GetValue<string>("UrlAlvo")!.TrimEnd('/');
-            IgnorarCertificadoAlvo = ConfigurationRoot.GetValue<bool>("IgnorarCertificadoAlvo");
+            Sites = ConfigurationRoot.GetSection("Sites").Get<Site[]>()!;
             CertificadoPrivado = ConfigurationRoot.GetValue<string>("CertificadoPrivado");
             CertificadoPrivadoSenha = ConfigurationRoot.GetValue<string>("CertificadoPrivadoSenha");
-            ResponseHeadersAdicionais = ConfigurationRoot.GetSection("RequestHeadersAdicionais").Get<Dictionary<string, string[]>>() ?? [];
+            PortaHttpRedirect = ConfigurationRoot.GetValue<string>("PortaHttpRedirect");
             Ip = ConfigurationRoot.GetValue<string>("IP");
 
             if (Ip != null && Ip != "")
             {
                 Porta = PortaIpRegex().Match(Ip).Value.TrimStart(':');
                 Ip = PortaIpRegex().Replace(Ip, "");
+            }
+
+            if (string.IsNullOrEmpty(Porta))
+            {
+                Porta = "5000";
             }
 
             AllowOrigins = ConfigurationRoot.GetSection("Cors:AllowHosts").Get<string[]>() ?? [];

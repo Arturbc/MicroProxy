@@ -35,7 +35,7 @@ internal static class Program
             int porta = 80;
             IPAddress ip = IPAddress.Parse(ipStr);
 
-            if (configuracao.CertificadoPrivado != null && configuracao.CertificadoPrivadoSenha != null)
+            if (configuracao.CertificadoPrivado != null && configuracao.CertificadoPrivado != "")
             {
                 porta = int.Parse(configuracao.Porta ?? "443");
                 serverOptions.Listen(ip, porta, listenOptions =>
@@ -55,7 +55,7 @@ internal static class Program
 
         // Configure the HTTP request pipeline.
 
-        if (configuracao.CertificadoPrivado != null)
+        if (!string.IsNullOrEmpty(configuracao.PortaHttpRedirect) && !string.IsNullOrEmpty(configuracao.CertificadoPrivado))
         {
             app.UseHttpsRedirection();
         }
@@ -71,22 +71,23 @@ internal static class Program
     }
     private static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
     {
+        HttpRequest request = context.Request;
+        string hostAlvo = new Uri(request.GetDisplayUrl()).Host;
+        Site site = configuracao.Sites.First(s => s.BindUrl == hostAlvo || string.IsNullOrEmpty(s.BindUrl));
         string[] propsHeaders = [];
         HttpClientHandler clientHandler = new() { CookieContainer = CookieContainer };
 
-        if (configuracao.IgnorarCertificadoAlvo)
+        if (site.IgnorarCertificadoAlvo)
         {
             clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
             clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;
         }
 
         HttpClient httpClient = new(clientHandler);
-        HttpRequest request = context.Request;
-        string hostAlvo = new Uri(request.GetDisplayUrl()).Host;
         Dictionary<string, StringValues> headersReq = request.Headers
                 .Where(hr => !HeadersProibidos.Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
             .ToDictionary();
-        using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), $"{configuracao.UrlAlvo}{request.GetEncodedPathAndQuery()}");
+        using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), $"{site.UrlAlvo}{request.GetEncodedPathAndQuery()}");
 
         if (request.Method != HttpMethods.Get)
         {
@@ -113,8 +114,8 @@ internal static class Program
         using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
         using HttpContent content = response.Content;
         Dictionary<string, string[]> headersResposta = response.Headers
-                .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
-                .Union(configuracao.ResponseHeadersAdicionais)
+                    .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
+                    .Union(site.ResponseHeadersAdicionais ?? [])
                 .Where(hr => !HeadersProibidos.Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
             .ToDictionary();
 
