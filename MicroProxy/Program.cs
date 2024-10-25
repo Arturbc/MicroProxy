@@ -32,7 +32,7 @@ internal static class Program
         builder.WebHost.ConfigureKestrel((context, serverOptions) =>
         {
             string ipStr = configuracao.Ip ?? IPAddress.Loopback.ToString();
-            int porta = 80;
+            int porta;
             IPAddress ip = IPAddress.Parse(ipStr);
 
             if (configuracao.CertificadoPrivado != null && configuracao.CertificadoPrivado != "")
@@ -43,9 +43,10 @@ internal static class Program
                     listenOptions.UseHttps(configuracao.CertificadoPrivado, configuracao.CertificadoPrivadoSenha);
                 });
             }
-            else
+            
+            if (configuracao.CertificadoPrivado == null || string.IsNullOrEmpty(configuracao.PortaHttpRedirect))
             {
-                porta = int.Parse(configuracao.Porta ?? porta.ToString());
+                porta = int.Parse(configuracao.PortaHttpRedirect ?? configuracao.Porta ?? "80");
                 serverOptions.Listen(ip, porta);
             }
         });
