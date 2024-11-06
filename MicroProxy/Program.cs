@@ -1,6 +1,7 @@
 using MicroProxy.Models;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
+using System.Drawing;
 using System.Net;
 
 internal static class Program
@@ -72,11 +73,25 @@ internal static class Program
     }
     private static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
     {
+        string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
+        string ipRemoto = (context.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
+        string ipLocal = (context.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
+        string[] ipsRemotosSemFw = [ipLocal, IPAddress.Loopback.ToString(), IPAddress.IPv6Loopback.ToString()];
         HttpRequest request = context.Request;
         string hostAlvo = new Uri(request.GetDisplayUrl()).Host;
         Site site = configuracao.Sites.First(s => s.BindUrl == hostAlvo || string.IsNullOrEmpty(s.BindUrl));
         string[] propsHeaders = [];
         HttpClientHandler clientHandler = new() { CookieContainer = CookieContainer };
+
+        foreach (string header in headersIpFw)
+        {
+            if (!string.IsNullOrEmpty(request.Headers[header]))
+            {
+                ipRemoto = request.Headers[header]!;
+
+                break;
+            }
+        }
 
         if (site.IgnorarCertificadoAlvo)
         {
@@ -100,17 +115,25 @@ internal static class Program
             };
         }
 
-        foreach (var item in headersReq)
+        foreach (var header in headersReq)
         {
-            string?[] valor = !item.Key.Equals("Host", StringComparison.CurrentCultureIgnoreCase) ? [.. item.Value] : [hostAlvo];
+            string?[] valor = !header.Key.Equals("Host", StringComparison.CurrentCultureIgnoreCase) ? [.. header.Value] : [hostAlvo];
 
-            requestMessage.Headers.TryAddWithoutValidation(item.Key, valor);
+            requestMessage.Headers.TryAddWithoutValidation(header.Key, valor);
 
-            if (requestMessage.Content != null && propsHeaders.Contains(item.Key.Replace("-", "")))
+            if (requestMessage.Content != null && propsHeaders.Contains(header.Key.Replace("-", "")))
             {
-                requestMessage.Content.Headers.TryAddWithoutValidation(item.Key, valor);
+                requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valor);
             }
         };
+
+        if (ipRemoto != null && ipRemoto != "" && ipRemoto != ipLocal)
+        {
+            foreach (var header in headersIpFw.Where(h => !requestMessage.Headers.TryGetValues(h, out _)).Reverse())
+            {
+                requestMessage.Headers.TryAddWithoutValidation(header, ipRemoto);
+            }
+        }
 
         using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
         using HttpContent content = response.Content;
