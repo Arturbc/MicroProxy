@@ -1,7 +1,6 @@
 using MicroProxy.Models;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
-using System.Drawing;
 using System.Net;
 
 internal static class Program
@@ -102,7 +101,7 @@ internal static class Program
         HttpClient httpClient = new(clientHandler);
         Dictionary<string, StringValues> headersReq = request.Headers
                 .Where(hr => !HeadersProibidos.Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-            .ToDictionary();
+            .Union(site.RequestHeadersAdicionais?.ToDictionary(rha => rha.Key, rha => new StringValues (rha.Value)) ?? []).ToDictionary();
         using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), $"{site.UrlAlvo}{request.GetEncodedPathAndQuery()}");
 
         if (request.Method != HttpMethods.Get)

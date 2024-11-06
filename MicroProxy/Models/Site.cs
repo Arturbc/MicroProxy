@@ -7,6 +7,7 @@ namespace MicroProxy.Models
         public string? BindUrl {  get; set; }
         public string UrlAlvo { get; set; } = null!;
         public bool IgnorarCertificadoAlvo { get; set; }
+        public Dictionary<string, string[]>? RequestHeadersAdicionais { get; set; }
         public Dictionary<string, string[]>? ResponseHeadersAdicionais { get; set; }
     }
 }
