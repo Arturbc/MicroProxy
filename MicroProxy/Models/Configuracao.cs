@@ -35,8 +35,8 @@ namespace MicroProxy.Models
                 Ip = PortaIpRegex().Replace(Ip, "");
             }
 
-            if (string.IsNullOrEmpty(Porta)) Porta = null;
-            if (string.IsNullOrEmpty(CertificadoPrivado)) PortaHttpRedirect = null;
+            if (Porta == "") Porta = null;
+            if (string.IsNullOrEmpty(CertificadoPrivado) || PortaHttpRedirect == "") PortaHttpRedirect = null;
 
             AllowOrigins = ConfigurationRoot.GetSection("Cors:AllowHosts").Get<string[]>() ?? [];
             AllowHeaders = ConfigurationRoot.GetSection("Cors:AllowHeaders").Get<string[]>() ?? [];

@@ -44,7 +44,7 @@ internal static class Program
                 });
             }
             
-            if (configuracao.CertificadoPrivado == null || string.IsNullOrEmpty(configuracao.PortaHttpRedirect))
+            if (configuracao.CertificadoPrivado == null || !string.IsNullOrEmpty(configuracao.PortaHttpRedirect))
             {
                 porta = int.Parse(configuracao.PortaHttpRedirect ?? configuracao.Porta ?? "80");
                 serverOptions.Listen(ip, porta);
