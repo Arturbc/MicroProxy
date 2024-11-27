@@ -46,7 +46,7 @@ internal static class Program
                 });
             }
             
-            if (configuracao.CertificadoPrivado == null || !string.IsNullOrEmpty(configuracao.PortaHttpRedirect))
+            if (string.IsNullOrEmpty(configuracao.CertificadoPrivado) || !string.IsNullOrEmpty(configuracao.PortaHttpRedirect))
             {
                 porta = int.Parse(configuracao.PortaHttpRedirect ?? configuracao.Porta ?? "80");
                 serverOptions.Listen(ip, porta);
@@ -119,8 +119,11 @@ internal static class Program
 
             if (exec == null)
             {
-                exec = Process.Start(Path.GetFullPath(site.ExePath));
+                string exeName = Path.GetFileName(site.ExePath);
+                string pathExe = Path.GetFullPath(site.ExePath).Replace(@$"\{exeName}", "");
+                ProcessStartInfo info = new() { WorkingDirectory = pathExe, FileName = exeName };
 
+                exec = Process.Start(info);
                 Executaveis = [.. Executaveis.Append(exec)];
             }
         }
