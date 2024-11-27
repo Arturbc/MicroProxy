@@ -1,12 +1,14 @@
 using MicroProxy.Models;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
+using System.Diagnostics;
 using System.Net;
 
 internal static class Program
 {
     static string[] HeadersProibidos => ["Transfer-Encoding"];
     static readonly CookieContainer CookieContainer = new();
+    static Process[] Executaveis = [];
     private static void Main(string[] args)
     {
         Configuracao configuracao = new();
@@ -53,6 +55,8 @@ internal static class Program
 #endif
 
         var app = builder.Build();
+        var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+        lifetime.ApplicationStopping.Register(OnShutdown);
 
         // Configure the HTTP request pipeline.
 
@@ -69,6 +73,17 @@ internal static class Program
         });
 
         app.Run();
+
+        static void OnShutdown()
+        {
+            foreach (var exec in Executaveis)
+            {
+                if (!exec.HasExited)
+                {
+                    exec.Close();
+                }
+            }
+        }
     }
     private static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
     {
@@ -81,6 +96,34 @@ internal static class Program
         Site site = configuracao.Sites.First(s => s.BindUrl == hostAlvo || string.IsNullOrEmpty(s.BindUrl));
         string[] propsHeaders = [];
         HttpClientHandler clientHandler = new() { CookieContainer = CookieContainer };
+
+        if (!string.IsNullOrEmpty(site.ExePath))
+        {
+            string nomeProcesso = Path.GetFileNameWithoutExtension(site.ExePath);
+            var exec = Executaveis.FirstOrDefault(e => e.ProcessName == nomeProcesso);
+
+            exec ??= Process.GetProcessesByName(nomeProcesso).FirstOrDefault(p => p.Id != Environment.ProcessId);
+
+            if (exec != null)
+            {
+                if (!exec.Responding)
+                {
+                    if (!exec.HasExited)
+                    {
+                        exec.Kill();
+                    }
+
+                    exec = null;
+                }
+            }
+
+            if (exec == null)
+            {
+                exec = Process.Start(Path.GetFullPath(site.ExePath));
+
+                Executaveis = [.. Executaveis.Append(exec)];
+            }
+        }
 
         foreach (string header in headersIpFw)
         {
@@ -101,7 +144,7 @@ internal static class Program
         HttpClient httpClient = new(clientHandler);
         Dictionary<string, StringValues> headersReq = request.Headers
                 .Where(hr => !HeadersProibidos.Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-            .Union(site.RequestHeadersAdicionais?.ToDictionary(rha => rha.Key, rha => new StringValues (rha.Value)) ?? []).ToDictionary();
+            .Union(site.RequestHeadersAdicionais?.ToDictionary(rha => rha.Key, rha => new StringValues(rha.Value)) ?? []).ToDictionary();
         using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), $"{site.UrlAlvo}{request.GetEncodedPathAndQuery()}");
 
         if (request.Method != HttpMethods.Get)
