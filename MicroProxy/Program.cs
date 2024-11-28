@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
 using System.Diagnostics;
 using System.Net;
+using System.Text.RegularExpressions;
 
 internal static class Program
 {
@@ -87,13 +88,51 @@ internal static class Program
     }
     private static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
     {
+        HttpRequest request = context.Request;
+        Uri urlAtual = new(request.GetDisplayUrl());
+        Site[] sites = [.. configuracao.Sites.Where(s =>
+        {
+            string? url = s.BindUrl;
+
+            if (url != null && !url.StartsWith("http", StringComparison.InvariantCultureIgnoreCase))
+            {
+                url = $"http://{url}";
+            }
+
+            if (url == null || !Uri.IsWellFormedUriString(url, UriKind.RelativeOrAbsolute))
+            {
+                return true;
+            }
+
+            Uri urlAlvo = new(url);
+
+            return !urlAlvo.IsWellFormedOriginalString() || urlAlvo.Host == urlAtual.Host;
+        })];
+        string pathUrlAlvo = "";
+        Site site = sites.First(s =>
+        {
+            string? url = s.BindUrl;
+
+            if (url != null && !url.StartsWith("http", StringComparison.InvariantCultureIgnoreCase))
+            {
+                url = $"http://{url}";
+            }
+
+            if (url == null || !Uri.IsWellFormedUriString(url, UriKind.RelativeOrAbsolute))
+            {
+                return true;
+            }
+
+            Uri urlAlvo = new(url);
+
+            pathUrlAlvo = urlAlvo.AbsolutePath;
+
+            return !urlAlvo.IsWellFormedOriginalString() || request.Path.StartsWithSegments(urlAlvo.AbsolutePath.TrimEnd('/'));
+        });
         string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
         string ipRemoto = (context.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
         string ipLocal = (context.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
         string[] ipsRemotosSemFw = [ipLocal, IPAddress.Loopback.ToString(), IPAddress.IPv6Loopback.ToString()];
-        HttpRequest request = context.Request;
-        string hostAlvo = new Uri(request.GetDisplayUrl()).Host;
-        Site site = configuracao.Sites.First(s => s.BindUrl == hostAlvo || string.IsNullOrEmpty(s.BindUrl));
         string[] propsHeaders = [];
         HttpClientHandler clientHandler = new() { CookieContainer = CookieContainer };
 
@@ -120,8 +159,8 @@ internal static class Program
             if (exec == null)
             {
                 string exeName = Path.GetFileName(site.ExePath);
-                string pathExe = string.IsNullOrEmpty(site.ExePathDiretorio) ? 
-                    Path.GetFullPath(site.ExePath).Replace(@$"\{exeName}", "") : site.ExePathDiretorio;
+                string pathExe = string.IsNullOrEmpty(site.ExePathDiretorio) ?
+                    Path.GetFullPath(site.ExePath).Replace(@$"\{exeName}", "") : Path.GetFullPath(site.ExePathDiretorio);
                 ProcessStartInfo info = new() { WorkingDirectory = pathExe, FileName = exeName };
 
                 exec = Process.Start(info);
@@ -145,11 +184,21 @@ internal static class Program
             clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;
         }
 
+        string pathUrlAtual = request.GetEncodedPathAndQuery();
+
+        if (pathUrlAlvo != "")
+        {
+            Regex pathUrlAlvoRegex = new($"^{pathUrlAlvo}", RegexOptions.IgnoreCase);
+
+            pathUrlAtual = pathUrlAlvoRegex.Replace(pathUrlAtual, "", 1);
+        }
+
         HttpClient httpClient = new(clientHandler);
         Dictionary<string, StringValues> headersReq = request.Headers
                 .Where(hr => !HeadersProibidos.Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
             .Union(site.RequestHeadersAdicionais?.ToDictionary(rha => rha.Key, rha => new StringValues(rha.Value)) ?? []).ToDictionary();
-        using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), $"{site.UrlAlvo}{request.GetEncodedPathAndQuery()}");
+        using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method),
+            $"{site.UrlAlvo}{pathUrlAtual}");
 
         if (request.Method != HttpMethods.Get)
         {
@@ -163,7 +212,7 @@ internal static class Program
 
         foreach (var header in headersReq)
         {
-            string?[] valor = !header.Key.Equals("Host", StringComparison.CurrentCultureIgnoreCase) ? [.. header.Value] : [hostAlvo];
+            string?[] valor = !header.Key.Equals("Host", StringComparison.CurrentCultureIgnoreCase) ? [.. header.Value] : [urlAtual.Host];
 
             requestMessage.Headers.TryAddWithoutValidation(header.Key, valor);
 
