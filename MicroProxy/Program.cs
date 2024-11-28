@@ -120,11 +120,12 @@ internal static class Program
             if (exec == null)
             {
                 string exeName = Path.GetFileName(site.ExePath);
-                string pathExe = Path.GetFullPath(site.ExePath).Replace(@$"\{exeName}", "");
+                string pathExe = string.IsNullOrEmpty(site.ExePathDiretorio) ? 
+                    Path.GetFullPath(site.ExePath).Replace(@$"\{exeName}", "") : site.ExePathDiretorio;
                 ProcessStartInfo info = new() { WorkingDirectory = pathExe, FileName = exeName };
 
                 exec = Process.Start(info);
-                Executaveis = [.. Executaveis.Append(exec)];
+                Executaveis = [.. Executaveis.Where(e => !e.HasExited).Append(exec)];
             }
         }
 

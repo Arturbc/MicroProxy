@@ -9,5 +9,6 @@
         public Dictionary<string, string[]>? RequestHeadersAdicionais { get; set; }
         public Dictionary<string, string[]>? ResponseHeadersAdicionais { get; set; }
         public string? ExePath { get; set; }
+        public string? ExePathDiretorio { get; set; }
     }
 }
