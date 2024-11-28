@@ -1,3 +1,4 @@
+using MicroProxy.Extensions;
 using MicroProxy.Models;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
@@ -7,15 +8,40 @@ using System.Text.RegularExpressions;
 
 internal static class Program
 {
+    const string NOME_COOKIE = "cookieMicroproxy";
     static string[] HeadersProibidos => ["Transfer-Encoding"];
-    static readonly CookieContainer CookieContainer = new();
     static Process[] Executaveis = [];
+    static readonly HttpContextAccessor _httpContextAccessor = new();
+    static CookieContainer CookieContainer
+    {
+        get
+        {
+            CookieContainer? container = _httpContextAccessor.HttpContext?.Session.GetObjectFromJson<CookieContainer>(NOME_COOKIE);
+
+            if (container == null)
+            {
+                container = new();
+                CookieContainer = container;
+            }
+
+            return container;
+        }
+        set => _httpContextAccessor.HttpContext?.Session.SetObjectAsJson(NOME_COOKIE, value);
+    }
     private static void Main(string[] args)
     {
         Configuracao configuracao = new();
         var builder = WebApplication.CreateBuilder(args);
 
         // Add services to the container.
+        builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+        builder.Services.AddDistributedMemoryCache();
+        builder.Services.AddSession(options =>
+        {
+            options.IdleTimeout = TimeSpan.MaxValue;
+            options.Cookie.Name = "Microproxy";
+            options.Cookie.IsEssential = true;
+        });
         builder.Services.AddCors(options =>
         {
             options.AddDefaultPolicy(builder =>
@@ -66,6 +92,7 @@ internal static class Program
             app.UseHttpsRedirection();
         }
 
+        app.UseSession();
         app.UseCors();
         app.Use(async (context, next) =>
         {
