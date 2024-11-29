@@ -11,5 +11,6 @@
         public Dictionary<string, string[]>? ResponseHeadersAdicionais { get; set; }
         public string? ExePath { get; set; }
         public string? ExePathDiretorio { get; set; }
+        public bool JanelaSeparada { get; set; }
     }
 }
