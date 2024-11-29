@@ -2,19 +2,20 @@ using MicroProxy.Extensions;
 using MicroProxy.Models;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
-using Newtonsoft.Json.Linq;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
-using System.Reflection.PortableExecutable;
 using System.Text.RegularExpressions;
 
-internal static class Program
+internal static partial class Program
 {
     const string NOME_COOKIE = "Microproxy";
-    const string COOKIE_COOKIE = "cookieSite";
     const string COOKIE_PATH_URLS = "pathUrls";
+    static readonly object _lock = new();
+    static Configuracao Configuracao = new();
+    static readonly Dictionary<string, KeyValuePair<DateTime, CookieContainer>?> _cookieContainers = [];
     static string[] HeadersProibidos => ["Transfer-Encoding"];
+    static string[] HeadersProibidosReq => [];
+    static string[] HeadersProibidosResp => [];
     static Process[] Executaveis = [];
     static readonly HttpContextAccessor _httpContextAccessor = new();
     static ISession? Sessao => _httpContextAccessor.HttpContext?.Session;
@@ -22,7 +23,13 @@ internal static class Program
     {
         get
         {
-            var container = Sessao?.GetObjectFromJson<CookieContainer>(COOKIE_COOKIE);
+            foreach (var kvp in _cookieContainers.Where(c => c.Value != null && c.Value.Value.Key < DateTime.Now).Reverse())
+            {
+                _cookieContainers.Remove(kvp.Key);
+            }
+
+            _cookieContainers.TryGetValue(Sessao!.Id, out var cookie);
+            var container = cookie?.Value;
 
             if (container == null)
             {
@@ -32,7 +39,23 @@ internal static class Program
 
             return container;
         }
-        set => Sessao?.SetObjectAsJson(COOKIE_COOKIE, value);
+        set
+        {
+            lock (_lock)
+            {
+                bool cookieExiste = _cookieContainers.TryGetValue(Sessao!.Id, out var cookie);
+                cookie = new(DateTime.Now.AddMinutes(Configuracao.MinutosValidadeCookie), value);
+
+                if (cookieExiste)
+                {
+                    _cookieContainers[Sessao!.Id] = cookie;
+                }
+                else
+                {
+                    _cookieContainers.Add(Sessao!.Id, cookie);
+                }
+            }
+        }
     }
     static Dictionary<string, string> PathUrls
     {
@@ -53,7 +76,6 @@ internal static class Program
 
     private static void Main(string[] args)
     {
-        Configuracao configuracao = new();
         var builder = WebApplication.CreateBuilder(args);
 
         // Add services to the container.
@@ -61,7 +83,7 @@ internal static class Program
         builder.Services.AddDistributedMemoryCache();
         builder.Services.AddSession(options =>
         {
-            options.IdleTimeout = TimeSpan.MaxValue;
+            options.IdleTimeout = TimeSpan.FromDays(Configuracao.MinutosValidadeCookie);
             options.Cookie.Name = NOME_COOKIE;
             options.Cookie.IsEssential = true;
         });
@@ -69,11 +91,11 @@ internal static class Program
         {
             options.AddDefaultPolicy(builder =>
             {
-                builder.WithOrigins(configuracao.AllowOrigins)
-                    .WithHeaders(configuracao.AllowHeaders)
-                    .WithMethods(configuracao.AllowMethods);
+                builder.WithOrigins(Configuracao.AllowOrigins)
+                    .WithHeaders(Configuracao.AllowHeaders)
+                    .WithMethods(Configuracao.AllowMethods);
 
-                if (!configuracao.AllowOrigins.Contains("*"))
+                if (!Configuracao.AllowOrigins.Contains("*"))
                 {
                     builder.AllowCredentials();
                 }
@@ -83,22 +105,22 @@ internal static class Program
 #if !DEBUG
         builder.WebHost.ConfigureKestrel((context, serverOptions) =>
         {
-            string ipStr = configuracao.Ip ?? IPAddress.Loopback.ToString();
+            string ipStr = Configuracao.Ip ?? IPAddress.Loopback.ToString();
             int porta;
             IPAddress ip = IPAddress.Parse(ipStr);
 
-            if (configuracao.CertificadoPrivado != null && configuracao.CertificadoPrivado != "")
+            if (Configuracao.CertificadoPrivado != null && Configuracao.CertificadoPrivado != "")
             {
-                porta = int.Parse(configuracao.Porta ?? "443");
+                porta = int.Parse(Configuracao.Porta ?? "443");
                 serverOptions.Listen(ip, porta, listenOptions =>
                 {
-                    listenOptions.UseHttps(configuracao.CertificadoPrivado, configuracao.CertificadoPrivadoSenha);
+                    listenOptions.UseHttps(Configuracao.CertificadoPrivado, Configuracao.CertificadoPrivadoSenha);
                 });
             }
             
-            if (string.IsNullOrEmpty(configuracao.CertificadoPrivado) || !string.IsNullOrEmpty(configuracao.PortaHttpRedirect))
+            if (string.IsNullOrEmpty(Configuracao.CertificadoPrivado) || !string.IsNullOrEmpty(Configuracao.PortaHttpRedirect))
             {
-                porta = int.Parse(configuracao.PortaHttpRedirect ?? configuracao.Porta ?? "80");
+                porta = int.Parse(Configuracao.PortaHttpRedirect ?? Configuracao.Porta ?? "80");
                 serverOptions.Listen(ip, porta);
             }
         });
@@ -110,7 +132,7 @@ internal static class Program
 
         // Configure the HTTP request pipeline.
 
-        if (!string.IsNullOrEmpty(configuracao.PortaHttpRedirect) && !string.IsNullOrEmpty(configuracao.CertificadoPrivado))
+        if (!string.IsNullOrEmpty(Configuracao.PortaHttpRedirect) && !string.IsNullOrEmpty(Configuracao.CertificadoPrivado))
         {
             app.UseHttpsRedirection();
         }
@@ -119,8 +141,8 @@ internal static class Program
         app.UseCors();
         app.Use(async (context, next) =>
         {
-            configuracao = new();
-            await next.ProcessarRequisicao(context, configuracao);
+            Configuracao = new();
+            await next.ProcessarRequisicao(context, Configuracao);
         });
 
         app.Run();
@@ -143,6 +165,7 @@ internal static class Program
         string urlRedirect = "";
         HttpRequest request = context.Request;
         Uri urlAtual = new(request.GetDisplayUrl());
+        Uri urlAlvo;
         Site[] sites = [.. configuracao.Sites.Where(s =>
         {
             string? url = s.BindUrl;
@@ -157,7 +180,7 @@ internal static class Program
                 return true;
             }
 
-            Uri urlAlvo = new(url);
+            urlAlvo = new(url);
 
             return !urlAlvo.IsWellFormedOriginalString() || urlAlvo.Host == urlAtual.Host;
         })];
@@ -176,7 +199,7 @@ internal static class Program
                 return true;
             }
 
-            Uri urlAlvo = new(url);
+            urlAlvo = new(url);
 
             pathUrlAlvo = urlAlvo.AbsolutePath.TrimEnd('/');
 
@@ -190,15 +213,17 @@ internal static class Program
             if (pathUrls.TryGetValue(urlAtual.Host, out var path) && sites.Length != 0)
             {
                 urlRedirect = $"{path}{pathUrlAtual}";
-                pathUrlAlvo = path;
-                site = sites.First(s => s.BindUrl == $"{urlAtual.Host}{path}");
+                context.Response.RedirectPreserveMethod(urlRedirect, true);
             }
             else
             {
                 await next(context);
-                return;
             }
+
+            return;
         }
+
+        urlAlvo = new(site.UrlAlvo);
 
         if (pathUrlAlvo != "")
         {
@@ -276,7 +301,7 @@ internal static class Program
 
         HttpClient httpClient = new(clientHandler);
         Dictionary<string, StringValues> headersReq = request.Headers
-                .Where(hr => !HeadersProibidos.Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
+                .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
             .Union(site.RequestHeadersAdicionais?.ToDictionary(rha => rha.Key, rha => new StringValues(rha.Value)) ?? []).ToDictionary();
         using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method),
             $"{site.UrlAlvo}{pathUrlAtual}");
@@ -293,19 +318,26 @@ internal static class Program
 
         foreach (var header in headersReq.Where(h => h.Value.Count != 0))
         {
-            string?[] valor = [.. header.Value];
+            string[] valores = [];
 
-            if (header.Key.Equals("Host", StringComparison.CurrentCultureIgnoreCase)) valor = [new Uri(site.UrlAlvo).Host];
-            else if (header.Key.Equals("Referer", StringComparison.CurrentCultureIgnoreCase))
-                valor = [requestMessage.RequestUri!.OriginalString.Replace(requestMessage.RequestUri!.PathAndQuery, "/")];
-            else if (header.Key.Equals("Origin", StringComparison.CurrentCultureIgnoreCase))
-                valor = [requestMessage.RequestUri!.OriginalString.Replace(requestMessage.RequestUri!.PathAndQuery, "")];
+            foreach (var valor in header.Value)
+            {
+                var valorTemp = valor;
 
-            requestMessage.Headers.TryAddWithoutValidation(header.Key, valor);
+                if (valorTemp != null)
+                {
+                    Regex cookieProxy = CookieMicroproxyRegex();
+                    valorTemp = cookieProxy.Replace(valorTemp.Replace(urlAtual.Host, urlAlvo.Host), "");
+                }
+
+                valores = [.. valores.Append(valorTemp)];
+            }
+
+            requestMessage.Headers.TryAddWithoutValidation(header.Key, valores);
 
             if (requestMessage.Content != null && propsHeaders.Contains(header.Key.Replace("-", "")))
             {
-                requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valor);
+                requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valores);
             }
         };
 
@@ -319,13 +351,11 @@ internal static class Program
 
         using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
 
-        CookieContainer = cookieContainer;
-
         using HttpContent content = response.Content;
         Dictionary<string, string[]> headersResposta = response.Headers
                     .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
                     .Union(site.ResponseHeadersAdicionais ?? [])
-                .Where(hr => !HeadersProibidos.Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
+                .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
             .ToDictionary();
 
         foreach (var item in headersResposta)
@@ -338,19 +368,13 @@ internal static class Program
             }
         };
 
-        if (requestMessage.RequestUri!.PathAndQuery != pathUrlAtual || urlRedirect != "")
+        CookieContainer = cookieContainer;
+
+        if (requestMessage.RequestUri!.PathAndQuery != pathUrlAtual)
         {
             string novoDestino = $"{pathUrlAlvo}{requestMessage.RequestUri!.PathAndQuery}";
 
-            if (requestMessage.Method.Method == HttpMethods.Get)
-            {
-                context.Response.Redirect(novoDestino);
-            }
-            else
-            {
-                context.Response.Headers.Location = novoDestino;
-                context.Response.StatusCode = StatusCodes.Status308PermanentRedirect;
-            }
+            context.Response.RedirectPreserveMethod(novoDestino, true, requestMessage.Method.Method);
 
             return;
         }
@@ -365,4 +389,22 @@ internal static class Program
 
         await context.Response.CompleteAsync();
     }
+
+    private static void RedirectPreserveMethod(this HttpResponse response, string novoDestino, bool permanent = false, string? method = null)
+    {
+        method ??= response.HttpContext.Request.Method;
+
+        if (method == HttpMethods.Get)
+        {
+            response.Redirect(novoDestino);
+        }
+        else
+        {
+            response.Headers.Location = novoDestino;
+            response.StatusCode = permanent ? StatusCodes.Status308PermanentRedirect : StatusCodes.Status307TemporaryRedirect;
+        }
+    }
+
+    [GeneratedRegex($"(?<=(^|(; *))){NOME_COOKIE}[^;]+; *")]
+    private static partial Regex CookieMicroproxyRegex();
 }

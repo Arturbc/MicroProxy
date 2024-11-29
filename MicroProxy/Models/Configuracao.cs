@@ -4,12 +4,14 @@ namespace MicroProxy.Models
 {
     public partial class Configuracao
     {
+        const int TEMPO_SESSAO_MIN_PADRAO = 43200;
         protected IConfigurationRoot ConfigurationRoot { get; set; } = null!;
+        public uint MinutosValidadeCookie { get; protected set; }
         public string? Ip { get; protected set; } = null!;
         public string? Porta { get; protected set; } = null!;
         public string? PortaHttpRedirect { get; protected set; } = null!;
-        public string? CertificadoPrivado { get; set; }
-        public string? CertificadoPrivadoSenha { get; set; }
+        public string? CertificadoPrivado { get; protected set; }
+        public string? CertificadoPrivadoSenha { get; protected set; }
         public Site[] Sites { get; protected set; }
         public string[] AllowOrigins { get; protected set; }
         public string[] AllowHeaders { get; protected set; }
@@ -23,11 +25,17 @@ namespace MicroProxy.Models
             configurationBuilder0.AddJsonFile(path0, false);
             ConfigurationRoot = configurationBuilder0.Build();
 
+            MinutosValidadeCookie = ConfigurationRoot.GetValue<uint>("MinutosValidadeCookie");
             Sites = ConfigurationRoot.GetSection("Sites").Get<Site[]>()!;
             CertificadoPrivado = ConfigurationRoot.GetValue<string>("CertificadoPrivado");
             CertificadoPrivadoSenha = ConfigurationRoot.GetValue<string>("CertificadoPrivadoSenha");
             PortaHttpRedirect = ConfigurationRoot.GetValue<string>("PortaHttpRedirect");
             Ip = ConfigurationRoot.GetValue<string>("IP");
+
+            if (MinutosValidadeCookie == 0)
+            {
+                MinutosValidadeCookie = TEMPO_SESSAO_MIN_PADRAO;
+            }
 
             if (Ip != null && Ip != "")
             {
