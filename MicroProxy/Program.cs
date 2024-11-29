@@ -9,53 +9,30 @@ using System.Text.RegularExpressions;
 internal static partial class Program
 {
     const string NOME_COOKIE = "Microproxy";
+    const string COOKIE_SITE = "cookieSite";
     const string COOKIE_PATH_URLS = "pathUrls";
-    static readonly object _lock = new();
     static Configuracao Configuracao = new();
-    static readonly Dictionary<string, KeyValuePair<DateTime, CookieContainer>?> _cookieContainers = [];
     static string[] HeadersProibidos => ["Transfer-Encoding"];
     static string[] HeadersProibidosReq => [];
     static string[] HeadersProibidosResp => [];
     static Process[] Executaveis = [];
     static readonly HttpContextAccessor _httpContextAccessor = new();
     static ISession? Sessao => _httpContextAccessor.HttpContext?.Session;
-    static CookieContainer CookieContainer
+    static Dictionary<Uri, string> CookiesSites
     {
         get
         {
-            foreach (var kvp in _cookieContainers.Where(c => c.Value != null && c.Value.Value.Key < DateTime.Now).Reverse())
+            var dic = Sessao?.GetObjectFromJson<Dictionary<Uri, string>>(COOKIE_SITE);
+
+            if (dic == null)
             {
-                _cookieContainers.Remove(kvp.Key);
+                dic = [];
+                CookiesSites = dic;
             }
 
-            _cookieContainers.TryGetValue(Sessao!.Id, out var cookie);
-            var container = cookie?.Value;
-
-            if (container == null)
-            {
-                container = new();
-                CookieContainer = container;
-            }
-
-            return container;
+            return dic;
         }
-        set
-        {
-            lock (_lock)
-            {
-                bool cookieExiste = _cookieContainers.TryGetValue(Sessao!.Id, out var cookie);
-                cookie = new(DateTime.Now.AddMinutes(Configuracao.MinutosValidadeCookie), value);
-
-                if (cookieExiste)
-                {
-                    _cookieContainers[Sessao!.Id] = cookie;
-                }
-                else
-                {
-                    _cookieContainers.Add(Sessao!.Id, cookie);
-                }
-            }
-        }
+        set => Sessao?.SetObjectAsJson(COOKIE_SITE, value);
     }
     static Dictionary<string, string> PathUrls
     {
@@ -160,7 +137,7 @@ internal static partial class Program
     }
     private static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
     {
-        var cookieContainer = CookieContainer;
+        var cookiesSites = CookiesSites;
         var pathUrls = PathUrls;
         string urlRedirect = "";
         HttpRequest request = context.Request;
@@ -245,6 +222,13 @@ internal static partial class Program
         string ipLocal = (context.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
         string[] ipsRemotosSemFw = [ipLocal, IPAddress.Loopback.ToString(), IPAddress.IPv6Loopback.ToString()];
         string[] propsHeaders = [];
+        CookieContainer cookieContainer = new();
+
+        if (cookiesSites.TryGetValue(urlAlvo, out var cookie))
+        {
+            cookieContainer.SetCookies(urlAlvo, cookie);
+        }
+
         HttpClientHandler clientHandler = new() { CookieContainer = cookieContainer };
 
         if (!string.IsNullOrEmpty(site.ExePath))
@@ -350,7 +334,6 @@ internal static partial class Program
         }
 
         using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
-
         using HttpContent content = response.Content;
         Dictionary<string, string[]> headersResposta = response.Headers
                     .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
@@ -368,7 +351,12 @@ internal static partial class Program
             }
         };
 
-        CookieContainer = cookieContainer;
+        if(!cookiesSites.TryAdd(urlAlvo, cookieContainer.GetCookieHeader(urlAlvo)))
+        {
+            cookiesSites[urlAlvo] = cookieContainer.GetCookieHeader(urlAlvo);
+        }
+
+        CookiesSites = cookiesSites;
 
         if (requestMessage.RequestUri!.PathAndQuery != pathUrlAtual)
         {
