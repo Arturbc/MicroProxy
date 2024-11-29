@@ -338,9 +338,6 @@ internal static class Program
             }
         };
 
-        await next(context);
-        context.Response.StatusCode = (int)response.StatusCode;
-
         if (requestMessage.RequestUri!.PathAndQuery != pathUrlAtual || urlRedirect != "")
         {
             string novoDestino = $"{pathUrlAlvo}{requestMessage.RequestUri!.PathAndQuery}";
@@ -357,6 +354,9 @@ internal static class Program
 
             return;
         }
+
+        await next(context);
+        context.Response.StatusCode = (int)response.StatusCode;
 
         if (context.Response.StatusCode < 300 || context.Response.StatusCode >= 400)
         {
