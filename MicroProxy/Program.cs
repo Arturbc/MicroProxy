@@ -146,11 +146,17 @@ internal static partial class Program
             await next.ProcessarRequisicao(context, Configuracao);
         });
 
+        foreach (var site in Configuracao.Sites.Where(s => s.ExePath != null && s.ExePath != "" && s.AutoExec).DistinctBy(s => s.BindUrl)
+            .DistinctBy(s => ProcessarPath(s.ExePath!) + ProcessarPath(s.ExePathDiretorio ?? "") + s.ExeArgumentos + s.JanelaSeparada.ToString()))
+        {
+            InicializarExecutavel(site);
+        }
+
         app.Run();
 
         static void OnShutdown()
         {
-            foreach (var exec in Executaveis)
+            foreach (var exec in Executaveis.Where(e => !e.StartInfo.CreateNoWindow || !e.Responding))
             {
                 if (!exec.HasExited)
                 {
@@ -255,43 +261,7 @@ internal static partial class Program
 
         HttpClientHandler clientHandler = new() { CookieContainer = cookieContainer };
 
-        if (!string.IsNullOrEmpty(site.ExePath))
-        {
-            string exePath = Environment.ExpandEnvironmentVariables(site.ExePath);
-            string exePathDiretorio = Environment.ExpandEnvironmentVariables(site.ExePathDiretorio ?? "");
-            string nomeProcesso = Path.GetFileNameWithoutExtension(exePath);
-            var exec = Executaveis.FirstOrDefault(e => e.ProcessName == nomeProcesso);
-
-            exec ??= Process.GetProcessesByName(nomeProcesso).FirstOrDefault(p => p.Id != Environment.ProcessId);
-
-            if (exec != null)
-            {
-                if (!exec.Responding)
-                {
-                    if (!exec.HasExited)
-                    {
-                        exec.Kill();
-                    }
-
-                    exec = null;
-                }
-            }
-
-            if (exec == null)
-            {
-                string exeName = Path.GetFileName(exePath);
-                string pathExe = string.IsNullOrEmpty(exePathDiretorio) ?
-                    Path.GetFullPath(exePath).Replace(@$"\{exeName}", "") : Path.GetFullPath(exePathDiretorio);
-                ProcessStartInfo info = new() { WorkingDirectory = pathExe, FileName = exePath, CreateNoWindow = site.JanelaSeparada };
-
-                exec = Process.Start(info);
-
-                if (!site.JanelaSeparada)
-                {
-                    Executaveis = [.. Executaveis.Where(e => !e.HasExited).Append(exec)];
-                }
-            }
-        }
+        InicializarExecutavel(site);
 
         foreach (string header in headersIpFw)
         {
@@ -417,6 +387,60 @@ internal static partial class Program
             response.Headers.Location = novoDestino;
             response.StatusCode = permanent ? StatusCodes.Status308PermanentRedirect : StatusCodes.Status307TemporaryRedirect;
         }
+    }
+
+    private static void InicializarExecutavel(Site site)
+    {
+        if (!string.IsNullOrEmpty(site.ExePath))
+        {
+            string exePath = ProcessarPath(site.ExePath);
+            string exePathDiretorio = ProcessarPath(site.ExePathDiretorio ?? "");
+            string nomeProcesso = Path.GetFileNameWithoutExtension(exePath);
+            string exeName = Path.GetFileName(exePath);
+            string pathExe = string.IsNullOrEmpty(exePathDiretorio) ?
+                exePath.Replace(@$"\{exeName}", "") : exePathDiretorio;
+            bool consulta(Process e) => e.ProcessName == nomeProcesso && e.StartInfo.FileName == exePath
+                && e.StartInfo.WorkingDirectory == pathExe && e.StartInfo.Arguments == site.ExeArgumentos
+                && e.StartInfo.CreateNoWindow == !site.JanelaSeparada;
+
+
+            var exec = Executaveis.FirstOrDefault(consulta);
+
+            exec ??= Process.GetProcesses().Where(consulta).FirstOrDefault(p => p.Id != Environment.ProcessId);
+
+            if (exec != null)
+            {
+                Executaveis = [.. Executaveis.Where(e => !e.HasExited).Append(exec)];
+
+                if (!exec.Responding)
+                {
+                    if (!exec.HasExited)
+                    {
+                        exec.Kill();
+                    }
+
+                    exec = null;
+                }
+            }
+
+            if (exec == null)
+            {
+                ProcessStartInfo info = new() { FileName = exePath, WorkingDirectory = pathExe, Arguments = site.ExeArgumentos, CreateNoWindow = !site.JanelaSeparada };
+
+                exec = Process.Start(info);
+                Executaveis = [.. Executaveis.Where(e => !e.HasExited).Append(exec)];
+            }
+        }
+    }
+
+    private static string ProcessarPath(string path)
+    {
+        if (path.Trim() != "")
+        {
+            path = Path.GetFullPath(Environment.ExpandEnvironmentVariables(path));
+        }
+
+        return path;
     }
 
     [GeneratedRegex($"(?<=(^|(; *))){NOME_COOKIE}[^;]+; *")]

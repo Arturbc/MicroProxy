@@ -13,5 +13,6 @@
         public string? ExeArgumentos { get; set; }
         public string? ExePathDiretorio { get; set; }
         public bool JanelaSeparada { get; set; }
+        public bool AutoExec { get; set; }
     }
 }
