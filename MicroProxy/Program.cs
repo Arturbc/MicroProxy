@@ -53,6 +53,7 @@ internal static partial class Program
 
     private static void Main(string[] args)
     {
+        bool https = true;
         var builder = WebApplication.CreateBuilder(args);
 
         // Add services to the container.
@@ -80,27 +81,50 @@ internal static partial class Program
         });
 
 #if !DEBUG
-        builder.WebHost.ConfigureKestrel((context, serverOptions) =>
-        {
-            string ipStr = Configuracao.Ip ?? IPAddress.Loopback.ToString();
-            int porta;
-            IPAddress ip = IPAddress.Parse(ipStr);
+        https = false;
 
-            if (Configuracao.CertificadoPrivado != null && Configuracao.CertificadoPrivado != "")
+        foreach (string ipStr in Configuracao.Ips)
+        {
+            builder.WebHost.ConfigureKestrel((context, serverOptions) =>
             {
-                porta = int.Parse(Configuracao.Porta ?? "443");
-                serverOptions.Listen(ip, porta, listenOptions =>
+                var ipPorta = IpPortaRegex().Match(ipStr);
+
+                if (ipPorta.Success)
                 {
-                    listenOptions.UseHttps(Configuracao.CertificadoPrivado, Configuracao.CertificadoPrivadoSenha);
-                });
-            }
-            
-            if (string.IsNullOrEmpty(Configuracao.CertificadoPrivado) || !string.IsNullOrEmpty(Configuracao.PortaHttpRedirect))
-            {
-                porta = int.Parse(Configuracao.PortaHttpRedirect ?? Configuracao.Porta ?? "80");
-                serverOptions.Listen(ip, porta);
-            }
-        });
+                    IPAddress ip = IPAddress.Parse(ipPorta.Groups["ipv4"].Success ? ipPorta.Groups["ipv4"].Value : ipPorta.Groups["ipv6"].Value);
+                    var portaHttp = Configuracao.PortaHttpRedirect;
+                    ushort porta = ushort.Parse(ipPorta.Groups["porta"].Success ? ipPorta.Groups["porta"].Value : "80");
+
+                    if (!https)
+                    {
+                        if (string.IsNullOrEmpty(Configuracao.CertificadoPrivado) || portaHttp != 0)
+                        {
+                            if (string.IsNullOrEmpty(Configuracao.CertificadoPrivado) && (ipPorta.Groups["porta"].Success || portaHttp == 0))
+                            {
+                                portaHttp = porta;
+                            }
+
+                            serverOptions.Listen(ip, portaHttp);
+                        }
+                    }
+
+                    if (Configuracao.CertificadoPrivado != null && Configuracao.CertificadoPrivado != "")
+                    {
+                        https = true;
+
+                        if (porta == 80)
+                        {
+                            porta = 443;
+                        }
+
+                        serverOptions.Listen(ip, porta, listenOptions =>
+                        {
+                            listenOptions.UseHttps(Configuracao.CertificadoPrivado, Configuracao.CertificadoPrivadoSenha);
+                        });
+                    }
+                }
+            });
+        }
 #endif
 
         var app = builder.Build();
@@ -109,7 +133,7 @@ internal static partial class Program
 
         // Configure the HTTP request pipeline.
 
-        if (!string.IsNullOrEmpty(Configuracao.PortaHttpRedirect) && !string.IsNullOrEmpty(Configuracao.CertificadoPrivado))
+        if (https)
         {
             app.UseHttpsRedirection();
         }
@@ -233,7 +257,9 @@ internal static partial class Program
 
         if (!string.IsNullOrEmpty(site.ExePath))
         {
-            string nomeProcesso = Path.GetFileNameWithoutExtension(site.ExePath);
+            string exePath = Environment.ExpandEnvironmentVariables(site.ExePath);
+            string exePathDiretorio = Environment.ExpandEnvironmentVariables(site.ExePathDiretorio ?? "");
+            string nomeProcesso = Path.GetFileNameWithoutExtension(exePath);
             var exec = Executaveis.FirstOrDefault(e => e.ProcessName == nomeProcesso);
 
             exec ??= Process.GetProcessesByName(nomeProcesso).FirstOrDefault(p => p.Id != Environment.ProcessId);
@@ -253,10 +279,10 @@ internal static partial class Program
 
             if (exec == null)
             {
-                string exeName = Path.GetFileName(site.ExePath);
-                string pathExe = string.IsNullOrEmpty(site.ExePathDiretorio) ?
-                    Path.GetFullPath(site.ExePath).Replace(@$"\{exeName}", "") : Path.GetFullPath(site.ExePathDiretorio);
-                ProcessStartInfo info = new() { WorkingDirectory = pathExe, FileName = exeName, CreateNoWindow = site.JanelaSeparada };
+                string exeName = Path.GetFileName(exePath);
+                string pathExe = string.IsNullOrEmpty(exePathDiretorio) ?
+                    Path.GetFullPath(exePath).Replace(@$"\{exeName}", "") : Path.GetFullPath(exePathDiretorio);
+                ProcessStartInfo info = new() { WorkingDirectory = pathExe, FileName = exePath, CreateNoWindow = site.JanelaSeparada };
 
                 exec = Process.Start(info);
 
@@ -351,7 +377,7 @@ internal static partial class Program
             }
         };
 
-        if(!cookiesSites.TryAdd(urlAlvo, cookieContainer.GetCookieHeader(urlAlvo)))
+        if (!cookiesSites.TryAdd(urlAlvo, cookieContainer.GetCookieHeader(urlAlvo)))
         {
             cookiesSites[urlAlvo] = cookieContainer.GetCookieHeader(urlAlvo);
         }
@@ -395,4 +421,6 @@ internal static partial class Program
 
     [GeneratedRegex($"(?<=(^|(; *))){NOME_COOKIE}[^;]+; *")]
     private static partial Regex CookieMicroproxyRegex();
+    [GeneratedRegex(@"(?:(?:(?<ipv4>(?:\d{1,3}\.){3}\d{1,3}))|(?:(?:\[(?=[^]]+\]:))?(?<ipv6>(?:(?:\w{1,4}:){7}\w{1,4})|(?:(?:\w{1,4}:){1,6}:(?:\w{1,4})?)|(?:(?:\w{1,4})?:(?::\w{1,4}){1,6})|(?:::))(?:(?<=\[[^]]+)\](?=:))?))(?::(?<porta>\d{1,5}))?")]
+    private static partial Regex IpPortaRegex();
 }

@@ -1,15 +1,12 @@
-﻿using System.Text.RegularExpressions;
-
-namespace MicroProxy.Models
+﻿namespace MicroProxy.Models
 {
     public partial class Configuracao
     {
         const int TEMPO_SESSAO_MIN_PADRAO = 43200;
         protected IConfigurationRoot ConfigurationRoot { get; set; } = null!;
         public uint MinutosValidadeCookie { get; protected set; }
-        public string? Ip { get; protected set; } = null!;
-        public string? Porta { get; protected set; } = null!;
-        public string? PortaHttpRedirect { get; protected set; } = null!;
+        public string[] Ips { get; protected set; } = null!;
+        public ushort PortaHttpRedirect { get; protected set; }
         public string? CertificadoPrivado { get; protected set; }
         public string? CertificadoPrivadoSenha { get; protected set; }
         public Site[] Sites { get; protected set; }
@@ -27,24 +24,15 @@ namespace MicroProxy.Models
 
             MinutosValidadeCookie = ConfigurationRoot.GetValue<uint>("MinutosValidadeCookie");
             Sites = ConfigurationRoot.GetSection("Sites").Get<Site[]>()!;
-            CertificadoPrivado = ConfigurationRoot.GetValue<string>("CertificadoPrivado");
+            CertificadoPrivado = ConfigurationRoot.GetValue<string>("CertificadoPrivado")?.Trim();
             CertificadoPrivadoSenha = ConfigurationRoot.GetValue<string>("CertificadoPrivadoSenha");
-            PortaHttpRedirect = ConfigurationRoot.GetValue<string>("PortaHttpRedirect");
-            Ip = ConfigurationRoot.GetValue<string>("IP");
+            PortaHttpRedirect = ConfigurationRoot.GetValue<ushort?>("PortaHttpRedirect") ?? 0;
+            Ips = ConfigurationRoot.GetSection("IPs").Get<string[]>() ?? [];
 
             if (MinutosValidadeCookie == 0)
             {
                 MinutosValidadeCookie = TEMPO_SESSAO_MIN_PADRAO;
             }
-
-            if (Ip != null && Ip != "")
-            {
-                Porta = PortaIpRegex().Match(Ip).Value.TrimStart(':');
-                Ip = PortaIpRegex().Replace(Ip, "");
-            }
-
-            if (Porta == "") Porta = null;
-            if (string.IsNullOrEmpty(CertificadoPrivado) || PortaHttpRedirect == "") PortaHttpRedirect = null;
 
             AllowOrigins = ConfigurationRoot.GetSection("Cors:AllowHosts").Get<string[]>() ?? [];
             AllowHeaders = ConfigurationRoot.GetSection("Cors:AllowHeaders").Get<string[]>() ?? [];
@@ -54,8 +42,5 @@ namespace MicroProxy.Models
             if (AllowHeaders.Length == 0) AllowOrigins = ["*"];
             if (AllowMethods.Length == 0) AllowOrigins = ["*"];
         }
-
-        [GeneratedRegex(@":\d{1,5}")]
-        private static partial Regex PortaIpRegex();
     }
 }
