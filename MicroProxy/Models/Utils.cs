@@ -192,7 +192,9 @@ namespace MicroProxy.Models
                     if (valorTemp != null)
                     {
                         Regex cookieProxy = CookieMicroproxyRegex();
-                        valorTemp = cookieProxy.Replace(valorTemp.Replace(urlAtual.Host, urlAlvo.Host), "");
+                        valorTemp = cookieProxy.Replace(valorTemp
+                            .Replace(urlAtual.Authority, urlAlvo.Authority)
+                            .Replace(urlAtual.Host, urlAlvo.Host), "");
                     }
 
                     valores = [.. valores.Append(valorTemp)];

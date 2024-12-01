@@ -1,6 +1,8 @@
 using MicroProxy.Models;
 using static MicroProxy.Models.Utils;
+
 #if !DEBUG
+using System.Text.RegularExpressions;
 using System.Net;
 #endif
 
