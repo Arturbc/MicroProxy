@@ -144,7 +144,7 @@ namespace MicroProxy.Models
                 cookieContainer.SetCookies(urlAlvo, cookie);
             }
 
-            HttpClientHandler clientHandler = new() { CookieContainer = cookieContainer };
+            HttpClientHandler clientHandler = new() { CookieContainer = cookieContainer, AllowAutoRedirect = false };
 
             InicializarExecutavel(site);
 
@@ -193,6 +193,7 @@ namespace MicroProxy.Models
                     {
                         Regex cookieProxy = CookieMicroproxyRegex();
                         valorTemp = cookieProxy.Replace(valorTemp
+                            .Replace($"{urlAtual.Scheme}://{urlAtual.Authority}", $"{urlAlvo.Scheme}://{urlAlvo.Authority}")
                             .Replace(urlAtual.Authority, urlAlvo.Authority)
                             .Replace(urlAtual.Host, urlAlvo.Host), "");
                     }
@@ -224,15 +225,27 @@ namespace MicroProxy.Models
                     .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
                 .ToDictionary();
 
-            foreach (var item in headersResposta)
+            foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
             {
-                StringValues valores = new(item.Value);
+                string[] valores = [];
 
-                if (!context.Response.Headers.TryAdd(item.Key, valores))
+                foreach (var valor in header.Value)
                 {
-                    context.Response.Headers.Append(item.Key, valores);
+                    var valorTemp = valor
+                            .Replace($"{urlAlvo.Scheme}://{urlAlvo.Authority}", $"{urlAtual.Scheme}://{urlAtual.Authority}")
+                            .Replace(urlAlvo.Authority, urlAtual.Authority)
+                            .Replace(urlAlvo.Host, urlAtual.Host);
+
+                    valores = [.. valores.Append(valorTemp)];
+                }
+
+                if (!context.Response.Headers.TryAdd(header.Key, valores))
+                {
+                    context.Response.Headers.Append(header.Key, valores);
                 }
             };
+
+            context.Response.StatusCode = (int)response.StatusCode;
 
             if (!cookiesSites.TryAdd(urlAlvo, cookieContainer.GetCookieHeader(urlAlvo)))
             {
@@ -241,23 +254,9 @@ namespace MicroProxy.Models
 
             CookiesSites = cookiesSites;
 
-            if (requestMessage.RequestUri!.PathAndQuery != pathUrlAtual)
-            {
-                string novoDestino = $"{pathUrlAlvo}{requestMessage.RequestUri!.PathAndQuery}";
+            if (context.Response.StatusCode >= 300 && context.Response.StatusCode < 400) return;
 
-                context.Response.RedirectPreserveMethod(novoDestino, true, requestMessage.Method.Method);
-
-                return;
-            }
-
-            await next(context);
-            context.Response.StatusCode = (int)response.StatusCode;
-
-            if (context.Response.StatusCode < 300 || context.Response.StatusCode >= 400)
-            {
-                await content.CopyToAsync(context.Response.Body).ConfigureAwait(false);
-            }
-
+            await content.CopyToAsync(context.Response.Body).ConfigureAwait(false);
             await context.Response.CompleteAsync();
         }
         private static void RedirectPreserveMethod(this HttpResponse response, string novoDestino, bool permanent = false, string? method = null)
