@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
 using System.Diagnostics;
 using System.Net;
-using System.Reflection.PortableExecutable;
 using System.Text.RegularExpressions;
 
 namespace MicroProxy.Models
