@@ -182,7 +182,7 @@ namespace MicroProxy.Models
                 };
             }
 
-            headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais, site.SubstituirReqHeadersOriginais);
+            headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
 
             foreach (var header in headersReq.Where(h => h.Value.Count != 0))
             {
@@ -224,7 +224,7 @@ namespace MicroProxy.Models
                     .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
                 .ToDictionary();
 
-            headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais, site.SubstituirRespHeadersOriginais);
+            headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
 
             foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
             {
@@ -356,26 +356,49 @@ namespace MicroProxy.Models
             }
         }
 
-        public static string ProcessarStringSubstituicao<T>(this string valor, T obj)
+        public static Dictionary<string, string?> ColetarDicionarioVariaveis<T>(this string valor, T obj, bool variavelReversa = false)
+        {
+            Dictionary<string, string?> dic = [];
+            var variaveis = VariavelRegex().Matches(valor).DistinctBy(v => v.Value).ToArray();
+
+            if (variaveis.Length > 0)
+            {
+                foreach (var variavel in variaveis)
+                {
+                    string nomeVariavel = variavel.Groups[1].Value;
+
+                    if (variavelReversa)
+                    {
+                        nomeVariavel = nomeVariavel.Contains("Atual")
+                            ? nomeVariavel.Replace("Atual", "Alvo") : nomeVariavel.Replace("Alvo", "Atual");
+                    }
+
+                    var valorVariavel = (obj?.GetType().GetProperty(nomeVariavel)?.GetValue(obj)
+                        ?? obj?.GetType().GetField(nomeVariavel)?.GetValue(obj))?.ToString();
+
+                    dic.Add(variavel.Value, valorVariavel);
+                }
+            }
+
+            return dic;
+        }
+
+        public static string ProcessarStringSubstituicao<T>(this string valor, T obj, Dictionary<string, string?>? dicVariaveis = null, bool tratarRegex = false)
         {
             if (obj != null)
             {
-                var variaveis = VariavelRegex().Matches(valor).ToArray();
-
-                if (variaveis.Length > 0)
+                if (tratarRegex)
                 {
                     valor = CharExpRegex().Replace(valor, "");
+                }
 
-                    foreach (var variavel in variaveis)
+                var variaveis = dicVariaveis ?? valor.ColetarDicionarioVariaveis(obj);
+
+                foreach (var variavel in variaveis)
+                {
+                    if (variavel.Value != null)
                     {
-                        string nomeVariavel = variavel.Groups[1].Value;
-                        var valorVariavel = (obj.GetType().GetProperty(nomeVariavel)?.GetValue(obj)
-                            ?? obj.GetType().GetField(nomeVariavel)?.GetValue(obj))?.ToString();
-
-                        if (valorVariavel != null)
-                        {
-                            valor = valor.Replace(variavel.Value, valorVariavel);
-                        }
+                        valor = valor.Replace(variavel.Key, variavel.Value);
                     }
                 }
             }
@@ -383,62 +406,33 @@ namespace MicroProxy.Models
             return valor;
         }
 
-        public static Dictionary<string, StringValues> ProcessarHeaders(this Site site, Dictionary<string, StringValues> headersOriginais, Dictionary<string, string[]>? headersAdicionais, bool substituir = false)
-            => site.ProcessarHeaders(headersOriginais.ToDictionary(h => h.Key, h => (string[])h.Value.Where(v => v != null).ToArray()!), headersAdicionais, substituir).ToDictionary(h => h.Key, h => new StringValues(h.Value));
+        public static Dictionary<string, StringValues> ProcessarHeaders(this Site site, Dictionary<string, StringValues> headersOriginais, Dictionary<string, string[]>? headersAdicionais)
+            => site.ProcessarHeaders(headersOriginais.ToDictionary(h => h.Key, h => (string[])h.Value.Where(v => v != null).ToArray()!), headersAdicionais).ToDictionary(h => h.Key, h => new StringValues(h.Value));
 
-        public static Dictionary<string, string[]> ProcessarHeaders(this Site site, Dictionary<string, string[]> headersOriginais, Dictionary<string, string[]>? headersAdicionais, bool substituir = false)
+        public static Dictionary<string, string[]> ProcessarHeaders(this Site site, Dictionary<string, string[]> headersOriginais, Dictionary<string, string[]>? headersAdicionais)
         {
             if (headersAdicionais != null)
             {
                 headersAdicionais = headersAdicionais.Where(v => v.Value.Length > 0).ToDictionary();
 
-                foreach (var header in headersOriginais.Where(h => headersAdicionais.ContainsKey(h.Key) || headersAdicionais.ContainsKey("*")))
+                foreach (var header in headersOriginais.Where(h => headersAdicionais.Any(ha => FlagKeySubstRegex().Replace(ha.Key, "") == h.Key) || headersAdicionais.ContainsKey("*")))
                 {
                     string[] valores = [];
 
                     foreach (var valor in header.Value)
                     {
                         string valorTemp = valor.ProcessarStringSubstituicao(site);
+                        var listaHeaders = headersAdicionais.Where(h => FlagKeySubstRegex().Replace(h.Key, "") == header.Key || h.Key == "*").ToDictionary();
 
-                        if (valorTemp == valor)
+                        foreach (var headerAdicional in listaHeaders)
                         {
-                            if (!headersAdicionais.TryGetValue(header.Key, out var listaHeaders))
+                            valores = [];
+
+                            foreach (var valoresHeader in headerAdicional.Value)
                             {
-                                listaHeaders = [];
-                            }
-
-                            if (headersAdicionais.TryGetValue("*", out var listaHeadersGenericos))
-                            {
-                                listaHeaders = [.. listaHeaders.Union(listaHeadersGenericos)];
-                            }
-
-                            foreach (var headerAdicional in listaHeaders)
-                            {
-                                Dictionary<string, string> dicVariaveis = [];
-                                Dictionary<string, string?> dicVariaveisReversas = [];
-                                string substRegexVariaveisProcessadas = headerAdicional;
-
-                                var variaveis = VariavelRegex().Matches(headerAdicional).DistinctBy(v => v.Value).ToArray();
-
-                                if (variaveis.Length > 0)
-                                {
-                                    foreach (var variavel in variaveis)
-                                    {
-                                        string nomeVariavel = variavel.Groups[1].Value;
-                                        string nomeVariavelReversa = nomeVariavel.Contains("Atual")
-                                            ? nomeVariavel.Replace("Atual", "Alvo") : nomeVariavel.Replace("Alvo", "Atual");
-                                        var valorVariavel = (site.GetType().GetProperty(nomeVariavel)?.GetValue(site)
-                                            ?? site.GetType().GetField(nomeVariavel)?.GetValue(site))?.ToString();
-                                        var valorVariavelReversa = (site.GetType().GetProperty(nomeVariavelReversa)?.GetValue(site)
-                                            ?? site.GetType().GetField(nomeVariavelReversa)?.GetValue(site))?.ToString();
-
-                                        if (valorVariavel != null)
-                                        {
-                                            dicVariaveis.Add(variavel.Value, valorVariavel);
-                                            dicVariaveisReversas.Add(variavel.Value, valorVariavelReversa);
-                                        }
-                                    }
-                                }
+                                var dicVariaveis = valoresHeader.ColetarDicionarioVariaveis(site).Where(d => d.Value != null).ToDictionary();
+                                var dicVariaveisReversas = valoresHeader.ColetarDicionarioVariaveis(site, true);
+                                string substRegexVariaveisProcessadas = valoresHeader;
 
                                 foreach (var variavel in dicVariaveis)
                                 {
@@ -463,15 +457,14 @@ namespace MicroProxy.Models
                                     }
                                 }
                             }
+
+                            valores = [.. valores.Append(valorTemp)];
+                            headersOriginais[header.Key] = FlagKeySubstRegex().IsMatch(headerAdicional.Key) ? valores : [.. headersOriginais[header.Key].Union(valores)];
                         }
-
-                        valores = [.. valores.Append(valorTemp)];
                     }
-
-                    headersOriginais[header.Key] = substituir ? valores : [.. headersOriginais[header.Key].Union(valores)];
                 }
 
-                foreach (var header in headersAdicionais.Where(h => h.Key != "*" && !headersOriginais.ContainsKey(h.Key)))
+                foreach (var header in headersAdicionais.Where(h => h.Key != "*" && !FlagKeySubstRegex().IsMatch(h.Key) && !headersOriginais.ContainsKey(h.Key)))
                 {
                     string[] valores = [];
 
@@ -490,10 +483,16 @@ namespace MicroProxy.Models
         [GeneratedRegex($"(?<=(?:^|(?:; *))){NOME_COOKIE}[^;]+(?:(?:; *)|(?: *$))")]
         private static partial Regex CookieMicroproxyRegex();
 
-        [GeneratedRegex($@"##([^#]+)##")]
+        [GeneratedRegex(@"##([^#]+)##")]
         private static partial Regex VariavelRegex();
 
-        [GeneratedRegex($@"(?:\?:)|(?:(?<=[^\w])\?)|(?:\?$)|(?:\\\w)|(?:\<\w+\>)|(?:[()<>\\\^\$])")]
+        [GeneratedRegex(@"(?:\?:)|(?:(?<=[^\w])\?)|(?:\?$)|(?:\\\w)|(?:\<\w+\>)|(?:[()<>\\\^\$])")]
         private static partial Regex CharExpRegex();
+
+        [GeneratedRegex(@"\*([\w#-]+ *= *[\w#-]+(?=(?: *, *)|(?:$)))?$")]
+        private static partial Regex FlagKeySubstRegex();
+
+        [GeneratedRegex(@"(?:(?<=^[^a-zA-Z]):)|(?:(?<!^|(?:\w+:)|[\w.~])[\\/](?=\w))|[*?""<>|]")]
+        public static partial Regex PathInvalidCharsRegex();
     }
 }
