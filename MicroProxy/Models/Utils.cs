@@ -365,6 +365,8 @@ namespace MicroProxy.Models
 
                 if (variaveis.Length > 0)
                 {
+                    valor = CharExpRegex().Replace(valor, "");
+
                     foreach (var variavel in variaveis)
                     {
                         string nomeVariavel = variavel.Groups[1].Value;
@@ -442,7 +444,7 @@ namespace MicroProxy.Models
                                 foreach (var variavel in dicVariaveis)
                                 {
                                     substRegexVariaveisProcessadas = substRegexVariaveisProcessadas
-                                        .Replace(variavel.Key, dicVariaveisReversas[variavel.Key] ?? @"[\w.]+");
+                                        .Replace(variavel.Key, dicVariaveisReversas[variavel.Key] ?? @$"[^/]+");
                                 }
 
                                 if (dicVariaveis.Count > 0)
@@ -486,10 +488,13 @@ namespace MicroProxy.Models
             return headersOriginais;
         }
 
-        [GeneratedRegex($"(?<=(^|(; *))){NOME_COOKIE}[^;]+; *")]
+        [GeneratedRegex($"(?<=(?:^|(?:; *))){NOME_COOKIE}[^;]+(?:(?:; *)|(?: *$))")]
         private static partial Regex CookieMicroproxyRegex();
 
         [GeneratedRegex($@"##([^#]+)##")]
         private static partial Regex VariavelRegex();
+
+        [GeneratedRegex($@"(?:\?:)|(?:(?<=[^\w])\?)|(?:\?$)|(?:\\\w)|(?:\<\w+\>)|(?:[()<>\\\^\$])")]
+        private static partial Regex CharExpRegex();
     }
 }
