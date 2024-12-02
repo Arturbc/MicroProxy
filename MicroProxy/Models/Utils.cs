@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
 using System.Diagnostics;
 using System.Net;
+using System.Reflection.PortableExecutable;
 using System.Text.RegularExpressions;
 
 namespace MicroProxy.Models
@@ -116,6 +117,7 @@ namespace MicroProxy.Models
             }
 
             urlAlvo = new(site.UrlAlvo);
+            site.UrlAtual = urlAtual.AbsoluteUri;
 
             if (pathUrlAlvo != "")
             {
@@ -167,7 +169,7 @@ namespace MicroProxy.Models
             HttpClient httpClient = new(clientHandler);
             Dictionary<string, StringValues> headersReq = request.Headers
                     .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-                .Union(site.RequestHeadersAdicionais?.ToDictionary(rha => rha.Key, rha => new StringValues(rha.Value)) ?? []).ToDictionary();
+                .ToDictionary();
             using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method),
                 $"{site.UrlAlvo}{pathUrlAtual}");
 
@@ -181,6 +183,8 @@ namespace MicroProxy.Models
                 };
             }
 
+            headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais, site.SubstituirReqHeadersOriginais);
+
             foreach (var header in headersReq.Where(h => h.Value.Count != 0))
             {
                 string[] valores = [];
@@ -192,10 +196,7 @@ namespace MicroProxy.Models
                     if (valorTemp != null)
                     {
                         Regex cookieProxy = CookieMicroproxyRegex();
-                        valorTemp = cookieProxy.Replace(valorTemp
-                            .Replace($"{urlAtual.Scheme}://{urlAtual.Authority}", $"{urlAlvo.Scheme}://{urlAlvo.Authority}")
-                            .Replace(urlAtual.Authority, urlAlvo.Authority)
-                            .Replace(urlAtual.Host, urlAlvo.Host), "");
+                        valorTemp = cookieProxy.Replace(valorTemp, "");
                     }
 
                     valores = [.. valores.Append(valorTemp)];
@@ -209,7 +210,7 @@ namespace MicroProxy.Models
                 }
             };
 
-            if (ipRemoto != null && ipRemoto != "" && ipRemoto != ipLocal)
+            if (ipRemoto != null && ipRemoto.Length > 0 && ipRemoto != ipLocal)
             {
                 foreach (var header in headersIpFw.Where(h => !requestMessage.Headers.TryGetValues(h, out _)).Reverse())
                 {
@@ -221,23 +222,14 @@ namespace MicroProxy.Models
             using HttpContent content = response.Content;
             Dictionary<string, string[]> headersResposta = response.Headers
                         .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
-                        .Union(site.ResponseHeadersAdicionais ?? [])
                     .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
                 .ToDictionary();
 
+            headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais, site.SubstituirRespHeadersOriginais);
+
             foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
             {
-                string[] valores = [];
-
-                foreach (var valor in header.Value)
-                {
-                    var valorTemp = valor
-                            .Replace($"{urlAlvo.Scheme}://{urlAlvo.Authority}", $"{urlAtual.Scheme}://{urlAtual.Authority}")
-                            .Replace(urlAlvo.Authority, urlAtual.Authority)
-                            .Replace(urlAlvo.Host, urlAtual.Host);
-
-                    valores = [.. valores.Append(valorTemp)];
-                }
+                string[] valores = header.Value;
 
                 if (!context.Response.Headers.TryAdd(header.Key, valores))
                 {
@@ -259,6 +251,7 @@ namespace MicroProxy.Models
             await content.CopyToAsync(context.Response.Body).ConfigureAwait(false);
             await context.Response.CompleteAsync();
         }
+
         private static void RedirectPreserveMethod(this HttpResponse response, string novoDestino, bool permanent = false, string? method = null)
         {
             method ??= response.HttpContext.Request.Method;
@@ -364,7 +357,139 @@ namespace MicroProxy.Models
             }
         }
 
+        public static string ProcessarStringSubstituicao<T>(this string valor, T obj)
+        {
+            if (obj != null)
+            {
+                var variaveis = VariavelRegex().Matches(valor).ToArray();
+
+                if (variaveis.Length > 0)
+                {
+                    foreach (var variavel in variaveis)
+                    {
+                        string nomeVariavel = variavel.Groups[1].Value;
+                        var valorVariavel = (obj.GetType().GetProperty(nomeVariavel)?.GetValue(obj)
+                            ?? obj.GetType().GetField(nomeVariavel)?.GetValue(obj))?.ToString();
+
+                        if (valorVariavel != null)
+                        {
+                            valor = valor.Replace(variavel.Value, valorVariavel);
+                        }
+                    }
+                }
+            }
+
+            return valor;
+        }
+
+        public static Dictionary<string, StringValues> ProcessarHeaders(this Site site, Dictionary<string, StringValues> headersOriginais, Dictionary<string, string[]>? headersAdicionais, bool substituir = false)
+            => site.ProcessarHeaders(headersOriginais.ToDictionary(h => h.Key, h => (string[])h.Value.Where(v => v != null).ToArray()!), headersAdicionais, substituir).ToDictionary(h => h.Key, h => new StringValues(h.Value));
+
+        public static Dictionary<string, string[]> ProcessarHeaders(this Site site, Dictionary<string, string[]> headersOriginais, Dictionary<string, string[]>? headersAdicionais, bool substituir = false)
+        {
+            if (headersAdicionais != null)
+            {
+                headersAdicionais = headersAdicionais.Where(v => v.Value.Length > 0).ToDictionary();
+
+                foreach (var header in headersOriginais.Where(h => headersAdicionais.ContainsKey(h.Key) || headersAdicionais.ContainsKey("*")))
+                {
+                    string[] valores = [];
+
+                    foreach (var valor in header.Value)
+                    {
+                        string valorTemp = valor.ProcessarStringSubstituicao(site);
+
+                        if (valorTemp == valor)
+                        {
+                            if (!headersAdicionais.TryGetValue(header.Key, out var listaHeaders))
+                            {
+                                listaHeaders = [];
+                            }
+
+                            if (headersAdicionais.TryGetValue("*", out var listaHeadersGenericos))
+                            {
+                                listaHeaders = [.. listaHeaders.Union(listaHeadersGenericos)];
+                            }
+
+                            foreach (var headerAdicional in listaHeaders)
+                            {
+                                Dictionary<string, string> dicVariaveis = [];
+                                Dictionary<string, string?> dicVariaveisReversas = [];
+                                string substRegexVariaveisProcessadas = headerAdicional;
+
+                                var variaveis = VariavelRegex().Matches(headerAdicional).DistinctBy(v => v.Value).ToArray();
+
+                                if (variaveis.Length > 0)
+                                {
+                                    foreach (var variavel in variaveis)
+                                    {
+                                        string nomeVariavel = variavel.Groups[1].Value;
+                                        string nomeVariavelReversa = nomeVariavel.Contains("Atual")
+                                            ? nomeVariavel.Replace("Atual", "Alvo") : nomeVariavel.Replace("Alvo", "Atual");
+                                        var valorVariavel = (site.GetType().GetProperty(nomeVariavel)?.GetValue(site)
+                                            ?? site.GetType().GetField(nomeVariavel)?.GetValue(site))?.ToString();
+                                        var valorVariavelReversa = (site.GetType().GetProperty(nomeVariavelReversa)?.GetValue(site)
+                                            ?? site.GetType().GetField(nomeVariavelReversa)?.GetValue(site))?.ToString();
+
+                                        if (valorVariavel != null)
+                                        {
+                                            dicVariaveis.Add(variavel.Value, valorVariavel);
+                                            dicVariaveisReversas.Add(variavel.Value, valorVariavelReversa);
+                                        }
+                                    }
+                                }
+
+                                foreach (var variavel in dicVariaveis)
+                                {
+                                    substRegexVariaveisProcessadas = substRegexVariaveisProcessadas
+                                        .Replace(variavel.Key, dicVariaveisReversas[variavel.Key] ?? @"[\w.]+");
+                                }
+
+                                if (dicVariaveis.Count > 0)
+                                {
+                                    Regex substRegex = new(substRegexVariaveisProcessadas);
+                                    bool valido = substRegex.IsMatch(valorTemp);
+
+                                    if (valido)
+                                    {
+                                        foreach (var variavel in dicVariaveisReversas.Where(d => d.Value != null))
+                                        {
+                                            valorTemp = valorTemp
+                                                .Replace(variavel.Value!, dicVariaveis[variavel.Key]);
+                                        }
+
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        valores = [.. valores.Append(valorTemp)];
+                    }
+
+                    headersOriginais[header.Key] = substituir ? valores : [.. headersOriginais[header.Key].Union(valores)];
+                }
+
+                foreach (var header in headersAdicionais.Where(h => h.Key != "*" && !headersOriginais.ContainsKey(h.Key)))
+                {
+                    string[] valores = [];
+
+                    foreach (var valor in header.Value)
+                    {
+                        valores = [.. valores.Append(valor.ProcessarStringSubstituicao(site))];
+                    }
+
+                    headersOriginais.Add(header.Key, valores);
+                }
+            }
+
+            return headersOriginais;
+        }
+
         [GeneratedRegex($"(?<=(^|(; *))){NOME_COOKIE}[^;]+; *")]
         private static partial Regex CookieMicroproxyRegex();
+
+        [GeneratedRegex($@"##([^#]+)##")]
+        private static partial Regex VariavelRegex();
     }
 }
