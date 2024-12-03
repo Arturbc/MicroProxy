@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
 using System.Diagnostics;
+using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
 
@@ -74,7 +75,7 @@ namespace MicroProxy.Models
 
             urlAlvo = new(url);
 
-            return !urlAlvo.IsWellFormedOriginalString() || urlAlvo.Host == urlAtual.Host;
+            return urlAlvo.Authority == urlAtual.Authority || (!configuracao.Sites.Any(ss => ss.BindUrl == urlAtual.Authority) && urlAlvo.Host == urlAtual.Host);
         })];
             string pathUrlAlvo = "";
             Site? site = sites.FirstOrDefault(s =>
@@ -95,7 +96,7 @@ namespace MicroProxy.Models
 
                 pathUrlAlvo = urlAlvo.AbsolutePath.TrimEnd('/');
 
-                return !urlAlvo.IsWellFormedOriginalString() || request.Path.StartsWithSegments(pathUrlAlvo);
+                return request.Path.StartsWithSegments(pathUrlAlvo);
             });
 
             string pathUrlAtual = request.GetEncodedPathAndQuery();
