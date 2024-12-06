@@ -1,22 +1,17 @@
 ﻿using MicroProxy.Extensions;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
-using System.Diagnostics;
-using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
+using static MicroProxy.Models.Configuracao;
 
 namespace MicroProxy.Models
 {
     public static partial class Utils
     {
-        public const string NOME_COOKIE = "Microproxy";
-        const string COOKIE_SITE = "cookieSite";
-        const string COOKIE_PATH_URLS = "pathUrls";
         static string[] HeadersProibidos => ["Transfer-Encoding"];
         static string[] HeadersProibidosReq => [];
         static string[] HeadersProibidosResp => [];
-        static Process[] Executaveis = [];
         static readonly HttpContextAccessor _httpContextAccessor = new();
         static ISession? Sessao => _httpContextAccessor.HttpContext?.Session;
         static Dictionary<Uri, string> CookiesSites
@@ -118,6 +113,7 @@ namespace MicroProxy.Models
 
             urlAlvo = new(site.UrlAlvo);
             site.UrlAtual = urlAtual.AbsoluteUri;
+            site.ReqMethodAtual = request.Method;
 
             if (pathUrlAlvo != "")
             {
@@ -148,7 +144,7 @@ namespace MicroProxy.Models
 
             HttpClientHandler clientHandler = new() { CookieContainer = cookieContainer, AllowAutoRedirect = false };
 
-            InicializarExecutavel(site);
+            site.InicializarExecutavel();
 
             foreach (string header in headersIpFw)
             {
@@ -264,96 +260,6 @@ namespace MicroProxy.Models
             {
                 response.Headers.Location = novoDestino;
                 response.StatusCode = permanent ? StatusCodes.Status308PermanentRedirect : StatusCodes.Status307TemporaryRedirect;
-            }
-        }
-
-        public static void InicializarExecutavel(Site site)
-        {
-            if (!string.IsNullOrEmpty(site.ExePath))
-            {
-                using ILoggerFactory loggerFactory =
-                    LoggerFactory.Create(builder =>
-                        builder.AddSimpleConsole(options =>
-                        {
-                            options.IncludeScopes = true;
-                            options.SingleLine = true;
-                            options.TimestampFormat = "HH:mm:ss ";
-                        }));
-                ILogger<Program> logger = loggerFactory.CreateLogger<Program>();
-                string exePath = ProcessarPath(site.ExePath);
-                string exePathDiretorio = ProcessarPath(site.ExePathDiretorio ?? "");
-                string nomeProcesso = Path.GetFileNameWithoutExtension(exePath);
-                string exeName = Path.GetFileName(exePath);
-                string pathExe = string.IsNullOrEmpty(exePathDiretorio) ?
-                    exePath.Replace(@$"\{exeName}", "") : exePathDiretorio;
-                string[] nomesProcesso = [nomeProcesso, exeName];
-                bool consulta(Process e) => nomesProcesso.Contains(e.ProcessName) && e.StartInfo.FileName == exePath
-                    && e.StartInfo.WorkingDirectory == pathExe && e.StartInfo.Arguments == site.ExeArgumentos
-                    && e.StartInfo.CreateNoWindow == !site.JanelaSeparada;
-                var exec = Executaveis.FirstOrDefault(consulta);
-
-                exec ??= Process.GetProcesses().FirstOrDefault(p => p.Id != Environment.ProcessId && nomesProcesso.Contains(p.ProcessName)
-                   && (p.MainModule == null
-                       || (p.MainModule.ModuleName == exeName && (p.MainModule.FileName.StartsWith(pathExe)
-                           || pathExe.StartsWith(p.MainModule.FileName.Replace(@$"\{exeName}", ""))))));
-
-                if (exec != null)
-                {
-                    using (logger.BeginScope($"[SSID {exec.Id} ({exec.ProcessName})]"))
-                    {
-                        if (!exec.Responding)
-                        {
-                            logger.LogInformation($" Não está respondendo!");
-
-                            if (!exec.HasExited)
-                            {
-                                exec.Kill();
-                                logger.LogInformation($" Finalizado!");
-                            }
-
-                            exec = null;
-                        }
-                    }
-                }
-
-                if (exec == null)
-                {
-                    ProcessStartInfo info = new() { FileName = exePath, WorkingDirectory = pathExe, Arguments = site.ExeArgumentos, CreateNoWindow = !site.JanelaSeparada };
-
-                    logger.LogInformation($"Inicializando {exeName}...");
-                    exec = Process.Start(info);
-
-                    if (exec != null)
-                    {
-                        Executaveis = [.. Executaveis.Where(e => !e.HasExited).Append(exec)];
-
-                        using (logger.BeginScope($"[SSID {exec.Id} ({exec.ProcessName})]"))
-                        {
-                            logger.LogInformation($"Inicializado!");
-                        }
-                    }
-                }
-            }
-        }
-
-        public static string ProcessarPath(string path)
-        {
-            if (path.Trim() != "")
-            {
-                path = Path.GetFullPath(Environment.ExpandEnvironmentVariables(path));
-            }
-
-            return path;
-        }
-
-        public static void OnShutdown()
-        {
-            foreach (var exec in Executaveis.Where(e => !e.StartInfo.CreateNoWindow || !e.Responding))
-            {
-                if (!exec.HasExited)
-                {
-                    exec.Close();
-                }
             }
         }
 

@@ -1,5 +1,6 @@
 using MicroProxy.Models;
-using static MicroProxy.Models.Utils;
+using static MicroProxy.Models.Configuracao;
+using static MicroProxy.Models.Site;
 
 #if !DEBUG
 using System.Text.RegularExpressions;
@@ -105,10 +106,12 @@ internal partial class Program
             await next.ProcessarRequisicao(context, configuracao);
         });
 
+        configuracao.Sites.First().ExibirVariaveisDisponiveis();
+
         foreach (var site in configuracao.Sites.Where(s => s.ExePath != null && s.ExePath != "" && s.AutoExec).DistinctBy(s => s.BindUrl)
             .DistinctBy(s => ProcessarPath(s.ExePath!) + ProcessarPath(s.ExePathDiretorio ?? "") + s.ExeArgumentos + s.JanelaSeparada.ToString()))
         {
-            InicializarExecutavel(site);
+            site.InicializarExecutavel();
         }
 
         app.Run();
