@@ -46,6 +46,7 @@ namespace MicroProxy.Models
             }
             set => Sessao?.SetObjectAsJson(COOKIE_PATH_URLS, value);
         }
+
         public static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
         {
             var cookiesSites = CookiesSites;
@@ -308,87 +309,6 @@ namespace MicroProxy.Models
             return valor;
         }
 
-        public static Dictionary<string, StringValues> ProcessarHeaders(this Site site, Dictionary<string, StringValues> headersOriginais, Dictionary<string, string[]>? headersAdicionais)
-            => site.ProcessarHeaders(headersOriginais.ToDictionary(h => h.Key, h => (string[])h.Value.Where(v => v != null).ToArray()!), headersAdicionais).ToDictionary(h => h.Key, h => new StringValues(h.Value));
-
-        public static Dictionary<string, string[]> ProcessarHeaders(this Site site, Dictionary<string, string[]> headersOriginais, Dictionary<string, string[]>? headersAdicionais)
-        {
-            if (headersAdicionais != null)
-            {
-                string[] keysCoringa = ["", "*"];
-                headersAdicionais = headersAdicionais.Where(v => v.Value.Length > 0).ToDictionary();
-
-                foreach (var header in headersOriginais.Where(h => headersAdicionais.Any(ha => FlagKeySubstRegex().Replace(ha.Key, "") == h.Key || keysCoringa.Contains(ha.Key))))
-                {
-                    string[] valores = [];
-                    var listaHeaders = headersAdicionais.Where(h => h.Key == header.Key || h.Key == "").ToDictionary();
-                    var listaHeadersSubstitutos = headersAdicionais.Where(h => (FlagKeySubstRegex().Replace(h.Key, "") == header.Key && h.Key != header.Key) || h.Key == "*")
-                        .ToDictionary(h => FlagKeySubstRegex().Replace(h.Key, ""), h => h.Value.Select(v => v.ProcessarStringSubstituicao(site)).ToArray());
-
-                    if (listaHeaders.Where(l => l.Key != "").Count() < listaHeadersSubstitutos.Where(l => l.Key != "").Count())
-                    {
-                        if (listaHeadersSubstitutos.TryGetValue(header.Key, out var headerValores))
-                        {
-                            headersOriginais[header.Key] = headerValores;
-                        }
-                    }
-                    else
-                    {
-                        foreach (var valor in header.Value)
-                        {
-                            string valorTemp = valor.ProcessarStringSubstituicao(site);
-
-                            foreach (var headerAdicional in listaHeaders)
-                            {
-                                bool substituirValores = false;
-                                valores = [];
-
-                                if (listaHeadersSubstitutos.TryGetValue(headerAdicional.Key, out var headerAdicionalSubs))
-                                {
-                                    substituirValores = true;
-
-                                    foreach (var valoresHeader in headerAdicional.Value)
-                                    {
-                                        Regex substRegex = new(valoresHeader.ProcessarStringSubstituicao(site));
-                                        var valido = substRegex.IsMatch(valorTemp);
-
-                                        if (valido)
-                                        {
-                                            string valorSubstitudo = headerAdicionalSubs.OrderBy(v => Math.Abs(v.Length - valorTemp.Length)).First();
-
-                                            valorTemp = substRegex.Replace(valorTemp, valorSubstitudo);
-                                            break;
-                                        }
-                                    }
-                                }
-                                else
-                                {
-                                    valorTemp = valorTemp.ProcessarStringSubstituicao(site, true);
-                                }
-
-                                valores = [.. valores.Append(valorTemp)];
-                                headersOriginais[header.Key] = substituirValores ? valores : [.. headersOriginais[header.Key].Union(valores)];
-                            }
-                        }
-                    }
-                }
-
-                foreach (var header in headersAdicionais.Where(h => !keysCoringa.Contains(h.Key) && !FlagKeySubstRegex().IsMatch(h.Key) && !headersOriginais.ContainsKey(h.Key)))
-                {
-                    string[] valores = [];
-
-                    foreach (var valor in header.Value)
-                    {
-                        valores = [.. valores.Append(valor.ProcessarStringSubstituicao(site))];
-                    }
-
-                    headersOriginais.Add(header.Key, valores);
-                }
-            }
-
-            return headersOriginais;
-        }
-
         [GeneratedRegex($"(?<=(?:^|(?:; *))){NOME_COOKIE}[^;]+(?:(?:; *)|(?: *$))")]
         private static partial Regex CookieMicroproxyRegex();
 
@@ -397,11 +317,5 @@ namespace MicroProxy.Models
 
         [GeneratedRegex(@"(?:\?:)|(?:(?<=[^\w])\?)|(?:\?$)|(?:\\\w)|(?:\<\w+\>)|(?:[()<>\\\^\$])")]
         private static partial Regex CharExpRegex();
-
-        [GeneratedRegex(@"\*([\w#-]+ *= *[\w#-]+(?=(?: *, *)|(?:$)))?$")]
-        private static partial Regex FlagKeySubstRegex();
-
-        [GeneratedRegex(@"(?:(?<=^[^a-zA-Z]):)|(?:(?<!^|(?:\w+:)|[\w.~])[\\/](?=\w))|[*?""<>|]")]
-        public static partial Regex PathInvalidCharsRegex();
     }
 }
