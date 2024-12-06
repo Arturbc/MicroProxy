@@ -357,7 +357,7 @@ namespace MicroProxy.Models
             }
         }
 
-        public static Dictionary<string, string?> ColetarDicionarioVariaveis<T>(this string valor, T obj, bool variavelReversa = false)
+        public static Dictionary<string, string?> ColetarDicionarioVariaveis<T>(this string valor, T obj)
         {
             Dictionary<string, string?> dic = [];
             var variaveis = VariavelRegex().Matches(valor).DistinctBy(v => v.Value).ToArray();
@@ -367,13 +367,6 @@ namespace MicroProxy.Models
                 foreach (var variavel in variaveis)
                 {
                     string nomeVariavel = variavel.Groups[1].Value;
-
-                    if (variavelReversa)
-                    {
-                        nomeVariavel = nomeVariavel.Contains("Atual")
-                            ? nomeVariavel.Replace("Atual", "Alvo") : nomeVariavel.Replace("Alvo", "Atual");
-                    }
-
                     var valorVariavel = (obj?.GetType().GetProperty(nomeVariavel)?.GetValue(obj)
                         ?? obj?.GetType().GetField(nomeVariavel)?.GetValue(obj))?.ToString();
 
@@ -384,7 +377,9 @@ namespace MicroProxy.Models
             return dic;
         }
 
-        public static string ProcessarStringSubstituicao<T>(this string valor, T obj, Dictionary<string, string?>? dicVariaveis = null, bool tratarRegex = false)
+        public static string ProcessarStringSubstituicao<T>(this string valor, T obj, bool tratarRegex = false) => valor.ProcessarStringSubstituicao(obj, null, tratarRegex);
+
+        public static string ProcessarStringSubstituicao<T>(this string valor, T obj, Dictionary<string, string?>? dicVariaveis, bool tratarRegex = false)
         {
             if (obj != null)
             {
@@ -414,58 +409,65 @@ namespace MicroProxy.Models
         {
             if (headersAdicionais != null)
             {
+                string[] keysCoringa = ["", "*"];
                 headersAdicionais = headersAdicionais.Where(v => v.Value.Length > 0).ToDictionary();
 
-                foreach (var header in headersOriginais.Where(h => headersAdicionais.Any(ha => FlagKeySubstRegex().Replace(ha.Key, "") == h.Key) || headersAdicionais.ContainsKey("*")))
+                foreach (var header in headersOriginais.Where(h => headersAdicionais.Any(ha => FlagKeySubstRegex().Replace(ha.Key, "") == h.Key || keysCoringa.Contains(ha.Key))))
                 {
                     string[] valores = [];
+                    var listaHeaders = headersAdicionais.Where(h => h.Key == header.Key || h.Key == "").ToDictionary();
+                    var listaHeadersSubstitutos = headersAdicionais.Where(h => (FlagKeySubstRegex().Replace(h.Key, "") == header.Key && h.Key != header.Key) || h.Key == "*")
+                        .ToDictionary(h => FlagKeySubstRegex().Replace(h.Key, ""), h => h.Value.Select(v => v.ProcessarStringSubstituicao(site)).ToArray());
 
-                    foreach (var valor in header.Value)
+                    if (listaHeaders.Where(l => l.Key != "").Count() < listaHeadersSubstitutos.Where(l => l.Key != "").Count())
                     {
-                        string valorTemp = valor.ProcessarStringSubstituicao(site);
-                        var listaHeaders = headersAdicionais.Where(h => FlagKeySubstRegex().Replace(h.Key, "") == header.Key || h.Key == "*").ToDictionary();
-
-                        foreach (var headerAdicional in listaHeaders)
+                        if (listaHeadersSubstitutos.TryGetValue(header.Key, out var headerValores))
                         {
-                            valores = [];
+                            headersOriginais[header.Key] = headerValores;
+                        }
+                    }
+                    else
+                    {
+                        foreach (var valor in header.Value)
+                        {
+                            string valorTemp = valor.ProcessarStringSubstituicao(site);
 
-                            foreach (var valoresHeader in headerAdicional.Value)
+                            foreach (var headerAdicional in listaHeaders)
                             {
-                                var dicVariaveis = valoresHeader.ColetarDicionarioVariaveis(site).Where(d => d.Value != null).ToDictionary();
-                                var dicVariaveisReversas = valoresHeader.ColetarDicionarioVariaveis(site, true);
-                                string substRegexVariaveisProcessadas = valoresHeader;
+                                bool substituirValores = false;
+                                valores = [];
 
-                                foreach (var variavel in dicVariaveis)
+                                if (listaHeadersSubstitutos.TryGetValue(headerAdicional.Key, out var headerAdicionalSubs))
                                 {
-                                    substRegexVariaveisProcessadas = substRegexVariaveisProcessadas
-                                        .Replace(variavel.Key, dicVariaveisReversas[variavel.Key] ?? @$"[^/]+");
-                                }
+                                    substituirValores = true;
 
-                                if (dicVariaveis.Count > 0)
-                                {
-                                    Regex substRegex = new(substRegexVariaveisProcessadas);
-                                    bool valido = substRegex.IsMatch(valorTemp);
-
-                                    if (valido)
+                                    foreach (var valoresHeader in headerAdicional.Value)
                                     {
-                                        foreach (var variavel in dicVariaveisReversas.Where(d => d.Value != null))
-                                        {
-                                            valorTemp = valorTemp
-                                                .Replace(variavel.Value!, dicVariaveis[variavel.Key]);
-                                        }
+                                        Regex substRegex = new(valoresHeader.ProcessarStringSubstituicao(site));
+                                        var valido = substRegex.IsMatch(valorTemp);
 
-                                        break;
+                                        if (valido)
+                                        {
+                                            string valorSubstitudo = headerAdicionalSubs.OrderBy(v => Math.Abs(v.Length - valorTemp.Length)).First();
+
+                                            valorTemp = substRegex.Replace(valorTemp, valorSubstitudo);
+                                            break;
+                                        }
                                     }
                                 }
-                            }
+                                else
+                                {
+                                    valorTemp = valorTemp.ProcessarStringSubstituicao(site, true);
+                                }
 
-                            valores = [.. valores.Append(valorTemp)];
-                            headersOriginais[header.Key] = FlagKeySubstRegex().IsMatch(headerAdicional.Key) ? valores : [.. headersOriginais[header.Key].Union(valores)];
+                                valores = [.. valores.Append(valorTemp)];
+                                headersOriginais[header.Key] = substituirValores ? valores : [.. headersOriginais[header.Key].Union(valores)];
+                            }
                         }
                     }
                 }
 
-                foreach (var header in headersAdicionais.Where(h => h.Key != "*" && !FlagKeySubstRegex().IsMatch(h.Key) && !headersOriginais.ContainsKey(h.Key)))
+                foreach (var header in headersAdicionais.Where(h => !keysCoringa.Contains(h.Key) && !FlagKeySubstRegex().IsMatch(h.Key) && !headersOriginais.ContainsKey(h.Key)))
                 {
                     string[] valores = [];
 
