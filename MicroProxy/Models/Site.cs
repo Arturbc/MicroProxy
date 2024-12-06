@@ -7,7 +7,7 @@ namespace MicroProxy.Models
     public partial class Site
     {
         static Process[] Executaveis = [];
-        private string? _bindAlvo = null;
+        private string[]? _bindAlvos = null;
         private string _urlAlvo = null!;
         private string? _exePath;
         private string? _exeArgumentos = null!;
@@ -26,21 +26,21 @@ namespace MicroProxy.Models
         public string HostPortAlvo => new Uri(_urlAlvo).Port.ToString();
         public string PathAndQueryAlvo => new Uri(_urlAlvo).PathAndQuery;
 
-        public string? BindUrl { get => _bindAlvo; private set => _bindAlvo = value?.TrimEnd('/'); }
-        public string UrlAlvo { get => _urlAlvo; private set => _urlAlvo = value.TrimEnd('/'); }
-        public bool IgnorarCertificadoAlvo { get; private set; }
+        public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos = [.. value?.Select(v => v.TrimEnd('/'))]; }
+        public string UrlAlvo { get => _urlAlvo; set => _urlAlvo = value.TrimEnd('/'); }
+        public bool IgnorarCertificadoAlvo { get; set; }
         public Dictionary<string, string[]>? RequestHeadersAdicionais { get; set; }
         public Dictionary<string, string[]>? ResponseHeadersAdicionais { get; set; }
-        public string? ExePath { get => _exePath; private set => _exePath = value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : null; }
+        public string? ExePath { get => _exePath; set => _exePath = value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : null; }
         public string? ExeArgumentos
         {
             get => _exeArgumentos;
-            private set => _exeArgumentos = value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : null;
+            set => _exeArgumentos = value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : null;
         }
         public string? ExePathDiretorio
         {
             get => _exePathDiretorio;
-            private set => _exePathDiretorio = value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : null;
+            set => _exePathDiretorio = value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : null;
         }
         public bool JanelaSeparada { get; private set; }
         public bool AutoExec { get; private set; }

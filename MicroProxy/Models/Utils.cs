@@ -56,43 +56,48 @@ namespace MicroProxy.Models
             Uri urlAtual = new(request.GetDisplayUrl());
             Uri urlAlvo;
             Site[] sites = [.. configuracao.Sites.Where(s =>
-        {
-            string? url = s.BindUrl;
-
-            if (url != null && !url.StartsWith("http", StringComparison.InvariantCultureIgnoreCase))
             {
-                url = $"http://{url}";
-            }
+                return s.BindUrls == null || s.BindUrls.Length == 0 || s.BindUrls.Any(b => {
+                    string? url = b;
 
-            if (url == null || !Uri.IsWellFormedUriString(url, UriKind.RelativeOrAbsolute))
-            {
-                return true;
-            }
+                    if (url != null && !url.StartsWith("http", StringComparison.InvariantCultureIgnoreCase))
+                    {
+                        url = $"http://{url}";
+                    }
 
-            urlAlvo = new(url);
+                    if (url == null || !Uri.IsWellFormedUriString(url, UriKind.RelativeOrAbsolute))
+                    {
+                        return true;
+                    }
 
-            return urlAlvo.Authority == urlAtual.Authority || (!configuracao.Sites.Any(ss => ss.BindUrl == urlAtual.Authority) && urlAlvo.Host == urlAtual.Host);
-        })];
+                    urlAlvo = new(url);
+
+                    return urlAlvo.Authority == urlAtual.Authority || (!configuracao.Sites.Any(ss => ss.BindUrls != null && ss.BindUrls.Contains(urlAtual.Authority)) && urlAlvo.Host == urlAtual.Host);
+                });
+            })];
             string pathUrlAlvo = "";
             Site? site = sites.FirstOrDefault(s =>
             {
-                string? url = s.BindUrl;
-
-                if (url != null && !url.StartsWith("http", StringComparison.InvariantCultureIgnoreCase))
+                return s.BindUrls == null || s.BindUrls.Length == 0 || s.BindUrls.Any(b =>
                 {
-                    url = $"http://{url}";
-                }
+                    string? url = b;
 
-                if (url == null || !Uri.IsWellFormedUriString(url, UriKind.RelativeOrAbsolute))
-                {
-                    return true;
-                }
+                    if (url != null && !url.StartsWith("http", StringComparison.InvariantCultureIgnoreCase))
+                    {
+                        url = $"http://{url}";
+                    }
 
-                urlAlvo = new(url);
+                    if (url == null || !Uri.IsWellFormedUriString(url, UriKind.RelativeOrAbsolute))
+                    {
+                        return true;
+                    }
 
-                pathUrlAlvo = urlAlvo.AbsolutePath.TrimEnd('/');
+                    urlAlvo = new(url);
 
-                return request.Path.StartsWithSegments(pathUrlAlvo);
+                    pathUrlAlvo = urlAlvo.AbsolutePath.TrimEnd('/');
+
+                    return request.Path.StartsWithSegments(pathUrlAlvo);
+                });
             });
 
             string pathUrlAtual = request.GetEncodedPathAndQuery();
