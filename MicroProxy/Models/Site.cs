@@ -19,15 +19,23 @@ namespace MicroProxy.Models
         public string HostAtual => new Uri(UrlAtual).Host;
         public string SchemaAtual => new Uri(UrlAtual).Scheme;
         public string HostPortAtual => new Uri(UrlAtual).Port.ToString();
-        public string PathAndQueryAtual => new Uri(UrlAtual).PathAndQuery;
+        public string PathAndQueryAtual => new Uri(UrlAtual).PathAndQuery.TrimEnd('/');
         public string AuthorityAlvo => new Uri(_urlAlvo).Authority;
         public string HostAlvo => new Uri(_urlAlvo).Host;
         public string SchemaAlvo => new Uri(_urlAlvo).Scheme;
         public string HostPortAlvo => new Uri(_urlAlvo).Port.ToString();
-        public string PathAndQueryAlvo => new Uri(_urlAlvo).PathAndQuery;
+        public string PathAndQueryAlvo => new Uri(_urlAlvo).PathAndQuery.TrimEnd('/');
 
-        public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos = [.. value?.Select(v => v.TrimEnd('/'))]; }
-        public string UrlAlvo { get => _urlAlvo; set => _urlAlvo = value.TrimEnd('/'); }
+        public string[]? BindUrls
+        {
+            get => _bindAlvos;
+            set => _bindAlvos = [.. value?.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))];
+        }
+        public string UrlAlvo
+        {
+            get => _urlAlvo;
+            set => _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/');
+        }
         public bool IgnorarCertificadoAlvo { get; set; }
         public Dictionary<string, string[]>? RequestHeadersAdicionais { get; set; }
         public Dictionary<string, string[]>? ResponseHeadersAdicionais { get; set; }
@@ -194,7 +202,7 @@ namespace MicroProxy.Models
                     {
                         foreach (var valor in header.Value)
                         {
-                            string valorTemp = valor.ProcessarStringSubstituicao(this);
+                            string valorTemp = valor;
 
                             foreach (var headerAdicional in listaHeaders)
                             {
@@ -212,7 +220,8 @@ namespace MicroProxy.Models
 
                                         if (valido)
                                         {
-                                            string valorSubstitudo = headerAdicionalSubs.OrderBy(v => Math.Abs(v.Length - valorTemp.Length)).First();
+                                            string valorSubstitudo = headerAdicionalSubs
+                                                .OrderBy(v => Math.Abs(NonSlashCharsRegex().Replace(v, "x").Length - NonSlashCharsRegex().Replace(valorTemp, "x").Length)).First();
 
                                             valorTemp = substRegex.Replace(valorTemp, valorSubstitudo);
                                             break;
@@ -252,5 +261,8 @@ namespace MicroProxy.Models
 
         [GeneratedRegex(@"(?:(?<=^[^a-zA-Z]):)|(?:(?<!^|(?:\w+:)|[\w.~])[\\/](?=\w))|[*?""<>|]")]
         public static partial Regex PathInvalidCharsRegex();
+
+        [GeneratedRegex(@"[^/]+")]
+        public static partial Regex NonSlashCharsRegex();
     }
 }

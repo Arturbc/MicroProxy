@@ -30,47 +30,22 @@ namespace MicroProxy.Models
             }
             set => Sessao?.SetObjectAsJson(COOKIE_SITE, value);
         }
-        static Dictionary<string, string> PathUrls
-        {
-            get
-            {
-                var dic = Sessao?.GetObjectFromJson<Dictionary<string, string>>(COOKIE_PATH_URLS);
-
-                if (dic == null)
-                {
-                    dic = [];
-                    PathUrls = dic;
-                }
-
-                return dic;
-            }
-            set => Sessao?.SetObjectAsJson(COOKIE_PATH_URLS, value);
-        }
 
         public static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
         {
             var cookiesSites = CookiesSites;
-            var pathUrls = PathUrls;
-            string urlRedirect = "";
             HttpRequest request = context.Request;
             Uri urlAtual = new(request.GetDisplayUrl());
             Uri urlAlvo;
             Site[] sites = [.. configuracao.Sites.Where(s =>
             {
-                return s.BindUrls == null || s.BindUrls.Length == 0 || s.BindUrls.Any(b => {
+                if (s.BindUrls == null || s.BindUrls.Length == 0) return true;
+
+                return s.BindUrls.Any(b =>
+                {
                     string? url = b;
 
-                    if (url != null && !url.StartsWith("http", StringComparison.InvariantCultureIgnoreCase))
-                    {
-                        url = $"http://{url}";
-                    }
-
-                    if (url == null || !Uri.IsWellFormedUriString(url, UriKind.RelativeOrAbsolute))
-                    {
-                        return true;
-                    }
-
-                    urlAlvo = new(url);
+                    urlAlvo = new(url, UriKind.Absolute);
 
                     return urlAlvo.Authority == urlAtual.Authority || (!configuracao.Sites.Any(ss => ss.BindUrls != null && ss.BindUrls.Contains(urlAtual.Authority)) && urlAlvo.Host == urlAtual.Host);
                 });
@@ -78,23 +53,14 @@ namespace MicroProxy.Models
             string pathUrlAlvo = "";
             Site? site = sites.FirstOrDefault(s =>
             {
-                return s.BindUrls == null || s.BindUrls.Length == 0 || s.BindUrls.Any(b =>
+                if (s.BindUrls == null || s.BindUrls.Length == 0) return true;
+
+                return s.BindUrls.Any(b =>
                 {
                     string? url = b;
 
-                    if (url != null && !url.StartsWith("http", StringComparison.InvariantCultureIgnoreCase))
-                    {
-                        url = $"http://{url}";
-                    }
-
-                    if (url == null || !Uri.IsWellFormedUriString(url, UriKind.RelativeOrAbsolute))
-                    {
-                        return true;
-                    }
-
                     urlAlvo = new(url);
-
-                    pathUrlAlvo = urlAlvo.AbsolutePath.TrimEnd('/');
+                    pathUrlAlvo = urlAlvo.AbsolutePath;
 
                     return request.Path.StartsWithSegments(pathUrlAlvo);
                 });
@@ -104,9 +70,10 @@ namespace MicroProxy.Models
 
             if (site == null)
             {
-                if (pathUrls.TryGetValue(urlAtual.Host, out var path) && sites.Length != 0)
+                if (sites.Length != 0 && pathUrlAlvo != "")
                 {
-                    urlRedirect = $"{path}{pathUrlAtual}";
+                    string urlRedirect = $"{pathUrlAlvo}{pathUrlAtual}";
+
                     context.Response.RedirectPreserveMethod(urlRedirect, true);
                 }
                 else
@@ -118,22 +85,22 @@ namespace MicroProxy.Models
             }
 
             urlAlvo = new(site.UrlAlvo);
+            pathUrlAlvo += urlAlvo.AbsolutePath.TrimEnd('/');
             site.UrlAtual = urlAtual.AbsoluteUri;
             site.ReqMethodAtual = request.Method;
 
             if (pathUrlAlvo != "")
             {
-                if (pathUrls.ContainsKey(urlAtual.Host))
+                Regex pathRegex = new($"^{pathUrlAlvo}");
+
+                pathUrlAtual = pathRegex.Replace(pathUrlAtual, "");
+
+                if (pathUrlAtual != request.GetEncodedPathAndQuery())
                 {
-                    pathUrls.Remove(urlAtual.Host);
+                    context.Response.RedirectPreserveMethod(pathUrlAtual, true);
+
+                    return;
                 }
-
-                pathUrls.Add(urlAtual.Host, pathUrlAlvo);
-                PathUrls = pathUrls;
-
-                Regex pathUrlAlvoRegex = new($@"^{pathUrlAlvo}(?=([/?]|$))", RegexOptions.IgnoreCase);
-
-                pathUrlAtual = pathUrlAlvoRegex.Replace(pathUrlAtual, "", 1);
             }
 
             string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];

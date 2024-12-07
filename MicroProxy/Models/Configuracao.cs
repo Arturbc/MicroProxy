@@ -4,7 +4,6 @@
     {
         public const string NOME_COOKIE = "Microproxy";
         public const string COOKIE_SITE = "cookieSite";
-        public const string COOKIE_PATH_URLS = "pathUrls";
         const int TEMPO_SESSAO_MIN_PADRAO = 43200;
         protected IConfigurationRoot ConfigurationRoot { get; set; } = null!;
         public uint MinutosValidadeCookie { get; protected set; }
