@@ -50,8 +50,8 @@ namespace MicroProxy.Models
             get => _exePathDiretorio;
             set => _exePathDiretorio = value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : null;
         }
-        public bool JanelaSeparada { get; private set; }
-        public bool AutoExec { get; private set; }
+        public bool JanelaSeparada { get; set; }
+        public bool AutoExec { get; set; }
 
         public void ExibirVariaveisDisponiveis()
         {
