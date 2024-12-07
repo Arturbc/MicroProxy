@@ -4,7 +4,6 @@
     {
         public const string NOME_COOKIE = "Microproxy";
         public const string COOKIE_SITE = "cookieSite";
-        const int TEMPO_SESSAO_MIN_PADRAO = 43200;
         protected IConfigurationRoot ConfigurationRoot { get; set; } = null!;
         public uint MinutosValidadeCookie { get; protected set; }
         public string[] Ips { get; protected set; } = null!;
@@ -30,12 +29,6 @@
             CertificadoPrivadoSenha = ConfigurationRoot.GetValue<string>("CertificadoPrivadoSenha");
             PortaHttpRedirect = ConfigurationRoot.GetValue<ushort?>("PortaHttpRedirect") ?? 0;
             Ips = ConfigurationRoot.GetSection("IPs").Get<string[]>() ?? [];
-
-            if (MinutosValidadeCookie == 0)
-            {
-                MinutosValidadeCookie = TEMPO_SESSAO_MIN_PADRAO;
-            }
-
             AllowOrigins = ConfigurationRoot.GetSection("Cors:AllowHosts").Get<string[]>() ?? [];
             AllowHeaders = ConfigurationRoot.GetSection("Cors:AllowHeaders").Get<string[]>() ?? [];
             AllowMethods = ConfigurationRoot.GetSection("Cors:AllowMethods").Get<string[]>() ?? [];

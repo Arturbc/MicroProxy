@@ -21,7 +21,7 @@ internal partial class Program
         builder.Services.AddDistributedMemoryCache();
         builder.Services.AddSession(options =>
         {
-            options.IdleTimeout = TimeSpan.FromDays(configuracao.MinutosValidadeCookie);
+            options.IdleTimeout = configuracao.MinutosValidadeCookie == 0 ? TimeSpan.MaxValue : TimeSpan.FromDays(configuracao.MinutosValidadeCookie);
             options.Cookie.Name = NOME_COOKIE;
             options.Cookie.IsEssential = true;
         });
