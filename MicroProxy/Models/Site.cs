@@ -9,9 +9,14 @@ namespace MicroProxy.Models
         static Process[] Executaveis = [];
         private string[]? _bindAlvos = null;
         private string _urlAlvo = null!;
-        private string? _exePath;
+        public bool? _ignorarCertificadoAlvo = null;
+        public Dictionary<string, string[]>? _requestHeadersAdicionais = null;
+        public Dictionary<string, string[]>? _responseHeadersAdicionais = null;
+        private string? _exePath = null;
         private string? _exeArgumentos = null!;
         private string? _exePathDiretorio = null!;
+        public bool? _janelaVisivel = null;
+        public bool? _autoExec = null;
         public string ReqMethodAtual = null!;
         public string UrlAtual = null!;
 
@@ -26,32 +31,16 @@ namespace MicroProxy.Models
         public string HostPortAlvo => new Uri(_urlAlvo).Port.ToString();
         public string PathAndQueryAlvo => new Uri(_urlAlvo).PathAndQuery.TrimEnd('/');
 
-        public string[]? BindUrls
-        {
-            get => _bindAlvos;
-            set => _bindAlvos = [.. value?.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))];
-        }
-        public string UrlAlvo
-        {
-            get => _urlAlvo;
-            set => _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/');
-        }
-        public bool IgnorarCertificadoAlvo { get; set; }
-        public Dictionary<string, string[]>? RequestHeadersAdicionais { get; set; }
-        public Dictionary<string, string[]>? ResponseHeadersAdicionais { get; set; }
-        public string? ExePath { get => _exePath; set => _exePath = value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : null; }
-        public string? ExeArgumentos
-        {
-            get => _exeArgumentos;
-            set => _exeArgumentos = value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : null;
-        }
-        public string? ExePathDiretorio
-        {
-            get => _exePathDiretorio;
-            set => _exePathDiretorio = value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : null;
-        }
-        public bool JanelaSeparada { get; set; }
-        public bool AutoExec { get; set; }
+        public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos ??= ([.. value?.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))]); }
+        public string UrlAlvo { get => _urlAlvo; set => _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/'); }
+        public bool IgnorarCertificadoAlvo { get => _ignorarCertificadoAlvo ?? false; set => _ignorarCertificadoAlvo ??= value; }
+        public Dictionary<string, string[]>? RequestHeadersAdicionais { get => _requestHeadersAdicionais; set => _requestHeadersAdicionais ??= value; }
+        public Dictionary<string, string[]>? ResponseHeadersAdicionais { get => _responseHeadersAdicionais; set => _responseHeadersAdicionais ??= value; }
+        public string? ExePath { get => _exePath; set => _exePath ??= value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePath; }
+        public string? ExeArgumentos { get => _exeArgumentos; set => _exeArgumentos ??= value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exeArgumentos; }
+        public string? ExePathDiretorio { get => _exePathDiretorio; set => _exePathDiretorio ??= value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePathDiretorio; }
+        public bool JanelaVisivel { get => _janelaVisivel ?? false; set => _janelaVisivel ??= value; }
+        public bool AutoExec { get => _autoExec ?? false; set => _autoExec ??= value; }
 
         public void ExibirVariaveisDisponiveis()
         {
@@ -116,7 +105,7 @@ namespace MicroProxy.Models
                 string[] nomesProcesso = [nomeProcesso, exeName];
                 bool consulta(Process e) => nomesProcesso.Contains(e.ProcessName) && e.StartInfo.FileName == exePath
                     && e.StartInfo.WorkingDirectory == pathExe && e.StartInfo.Arguments == ExeArgumentos
-                    && e.StartInfo.CreateNoWindow == !JanelaSeparada;
+                    && e.StartInfo.CreateNoWindow == !JanelaVisivel;
                 var exec = Executaveis.FirstOrDefault(consulta);
 
                 exec ??= Process.GetProcesses().FirstOrDefault(p => p.Id != Environment.ProcessId && nomesProcesso.Contains(p.ProcessName)
@@ -145,7 +134,7 @@ namespace MicroProxy.Models
 
                 if (exec == null)
                 {
-                    ProcessStartInfo info = new() { FileName = exePath, WorkingDirectory = pathExe, Arguments = ExeArgumentos, CreateNoWindow = !JanelaSeparada };
+                    ProcessStartInfo info = new() { FileName = exePath, WorkingDirectory = pathExe, Arguments = ExeArgumentos, CreateNoWindow = !JanelaVisivel };
 
                     logger.LogInformation($"Inicializando {exeName}...");
                     exec = Process.Start(info);
