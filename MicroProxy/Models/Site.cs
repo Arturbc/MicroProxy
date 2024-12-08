@@ -229,7 +229,8 @@ namespace MicroProxy.Models
                     }
                 }
 
-                foreach (var header in headersAdicionais.Where(h => !keysCoringa.Contains(h.Key) && !FlagKeySubstRegex().IsMatch(h.Key) && !headersOriginais.ContainsKey(h.Key)))
+                foreach (var header in headersAdicionais.Where(h => !keysCoringa.Contains(h.Key) && !FlagKeySubstRegex().IsMatch(h.Key)
+                    && !headersAdicionais.Any(ha => FlagKeySubstRegex().Replace(ha.Key, "") == h.Key && ha.Key != h.Key) && !headersOriginais.ContainsKey(h.Key)))
                 {
                     string[] valores = [];
 
