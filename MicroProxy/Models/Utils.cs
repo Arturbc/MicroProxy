@@ -38,37 +38,42 @@ namespace MicroProxy.Models
             Uri urlAtual = new(request.GetDisplayUrl());
             Uri urlAlvo;
             Site[] sites = [.. configuracao.Sites.Where(s =>
-            {
-                if (s.BindUrls == null || s.BindUrls.Length == 0) return true;
-
-                return s.BindUrls.Any(b =>
                 {
-                    string? url = b;
+                    if (s.BindUrls == null || s.BindUrls.Length == 0) return true;
 
-                    urlAlvo = new(url, UriKind.Absolute);
+                    return s.BindUrls.Any(b =>
+                    {
+                        string? url = b;
 
-                    return urlAlvo.Authority == urlAtual.Authority || (!configuracao.Sites.Any(ss => ss.BindUrls != null && ss.BindUrls.Contains(urlAtual.Authority)) && urlAlvo.Host == urlAtual.Host);
-                });
-            })];
+                        urlAlvo = new(url, UriKind.Absolute);
+
+                        return urlAlvo.Authority == urlAtual.Authority
+                            || (!configuracao.Sites.Any(ss => ss.BindUrls != null
+                                && ss.BindUrls.Contains(urlAtual.Authority))
+                            && urlAlvo.Host == urlAtual.Host);
+                    });
+                })];
             string pathUrlAlvo = "";
-            Site? site = sites.FirstOrDefault(s =>
-            {
-                if (s.BindUrls == null || s.BindUrls.Length == 0) return true;
-
-                return s.BindUrls.Any(b =>
+            Site? site = sites.OrderByDescending(s => s.Methods.Contains(request.Method)).ThenBy(s => s.Methods.Length)
+                .ThenBy(s => string.Join(',', s.Methods)).FirstOrDefault(s =>
                 {
-                    string? url = b;
+                    if (s.BindUrls == null || s.BindUrls.Length == 0) return true;
 
-                    urlAlvo = new(url);
-                    pathUrlAlvo = urlAlvo.AbsolutePath;
+                    return s.BindUrls.Any(b =>
+                    {
+                        string? url = b;
 
-                    return request.Path.StartsWithSegments(pathUrlAlvo);
+                        urlAlvo = new(url);
+                        pathUrlAlvo = urlAlvo.AbsolutePath;
+
+                        return request.Path.StartsWithSegments(pathUrlAlvo);
+                    });
                 });
-            });
 
             string pathUrlAtual = request.GetEncodedPathAndQuery();
+            string[] methodsAceitos = [request.Method, "*"];
 
-            if (site == null)
+            if (site == null || !site.Methods.Any(m => methodsAceitos.Contains(m)))
             {
                 if (sites.Length != 0 && pathUrlAlvo != "")
                 {
@@ -79,6 +84,11 @@ namespace MicroProxy.Models
                 else
                 {
                     await next(context);
+
+                    if (site != null)
+                    {
+                        context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+                    }
                 }
 
                 return;

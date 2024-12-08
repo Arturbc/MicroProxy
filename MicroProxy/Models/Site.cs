@@ -9,6 +9,7 @@ namespace MicroProxy.Models
         static Process[] Executaveis = [];
         private string[]? _bindAlvos = null;
         private string _urlAlvo = null!;
+        private string[]? _methods = null;
         public bool? _ignorarCertificadoAlvo = null;
         public Dictionary<string, string[]>? _requestHeadersAdicionais = null;
         public Dictionary<string, string[]>? _responseHeadersAdicionais = null;
@@ -33,6 +34,7 @@ namespace MicroProxy.Models
 
         public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos ??= ([.. value?.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))]); }
         public string UrlAlvo { get => _urlAlvo; set => _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/'); }
+        public string[] Methods { get => _methods!; set => _methods ??= value; }
         public bool IgnorarCertificadoAlvo { get => _ignorarCertificadoAlvo ?? false; set => _ignorarCertificadoAlvo ??= value; }
         public Dictionary<string, string[]>? RequestHeadersAdicionais { get => _requestHeadersAdicionais; set => _requestHeadersAdicionais ??= value; }
         public Dictionary<string, string[]>? ResponseHeadersAdicionais { get => _responseHeadersAdicionais; set => _responseHeadersAdicionais ??= value; }
