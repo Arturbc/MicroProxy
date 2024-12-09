@@ -80,7 +80,7 @@ namespace MicroProxy.Models
                         });
                     });
 
-                string pathUrlAtual = request.GetEncodedPathAndQuery().TrimEnd('/');
+                string pathUrlAtual = request.GetEncodedPathAndQuery();
                 string[] methodsAceitos = [request.Method, "*"];
 
                 if (site == null || !site.Methods.Any(m => methodsAceitos.Contains(m)))
