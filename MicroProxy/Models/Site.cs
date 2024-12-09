@@ -265,7 +265,7 @@ namespace MicroProxy.Models
         [GeneratedRegex(@"\*([\w#-]+ *= *[\w#-]+(?=(?: *, *)|(?:$)))?$")]
         private static partial Regex FlagKeySubstRegex();
 
-        [GeneratedRegex(@"(?:(?<=^[^a-zA-Z]):)|(?:(?<!^|(?:\w+[:%])|[\w.~])[\\/](?=%?\w))|[*?""<>|]")]
+        [GeneratedRegex(@"(?:(?<!^[a-zA-Z]):)|(?:(?<!(?:^\\?)|(?:\w+[:%])|[\w.~])[\\/](?!%?\w))|[*?""<>|]")]
         public static partial Regex PathInvalidCharsRegex();
 
         [GeneratedRegex(@"[^/]+")]
