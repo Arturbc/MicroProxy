@@ -20,7 +20,7 @@ namespace MicroProxy.Models
         public bool? _autoExec = null;
         public string ReqMethodAtual = null!;
         public string UrlAtual = null!;
-        public string? ReqBody = null!;
+        public string? ReqBody = null;
         public Exception? Exception = null;
 
         public string AuthorityAtual => new Uri(UrlAtual).Authority;
@@ -48,7 +48,7 @@ namespace MicroProxy.Models
 
         public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos ??= ([.. value?.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))]); }
         public string UrlAlvo { get => _urlAlvo; set => _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/'); }
-        public string[] Methods { get => _methods!; set => _methods ??= value; }
+        public string[] Methods { get => _methods!; set => _methods ??= value ?? ["*"]; }
         public bool IgnorarCertificadoAlvo { get => _ignorarCertificadoAlvo ?? false; set => _ignorarCertificadoAlvo ??= value; }
         public Dictionary<string, string[]>? RequestHeadersAdicionais { get => _requestHeadersAdicionais; set => _requestHeadersAdicionais ??= value; }
         public Dictionary<string, string[]>? ResponseHeadersAdicionais { get => _responseHeadersAdicionais; set => _responseHeadersAdicionais ??= value; }
@@ -170,7 +170,7 @@ namespace MicroProxy.Models
 
         public static void OnShutdown()
         {
-            foreach (var exec in Executaveis.Where(e => !e.StartInfo.CreateNoWindow || !e.Responding))
+            foreach (var exec in Executaveis.Where(e => e.StartInfo.CreateNoWindow || !e.Responding))
             {
                 if (!exec.HasExited)
                 {

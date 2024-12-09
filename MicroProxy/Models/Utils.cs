@@ -53,10 +53,13 @@ namespace MicroProxy.Models
 
                         urlAlvo = new(url, UriKind.Absolute);
 
-                        return urlAlvo.Authority == urlAtual.Authority
+                        return $"{urlAlvo.Scheme}://{urlAlvo.Authority}" == $"{urlAtual.Scheme}://{urlAtual.Authority}"
                             || (!configuracao.Sites.Any(ss => ss.BindUrls != null
-                                && ss.BindUrls.Contains(urlAtual.Authority))
-                            && urlAlvo.Host == urlAtual.Host);
+                                    && ss.BindUrls.Contains($"{urlAtual.Scheme}://{urlAtual.Authority}"))
+                                && urlAlvo.Authority == urlAtual.Authority)
+                            || (!configuracao.Sites.Any(ss => ss.BindUrls != null
+                                    && ss.BindUrls.Select(bu => new Uri(bu).Authority).Contains($"{urlAtual.Authority}"))
+                                && urlAlvo.Host == urlAtual.Host);
                     });
                 })];
                 string pathUrlAlvo = "";
@@ -71,13 +74,13 @@ namespace MicroProxy.Models
                             string? url = b;
 
                             urlAlvo = new(url);
-                            pathUrlAlvo = urlAlvo.AbsolutePath;
+                            pathUrlAlvo = urlAlvo.AbsolutePath.TrimEnd('/');
 
                             return request.Path.StartsWithSegments(pathUrlAlvo);
                         });
                     });
 
-                string pathUrlAtual = request.GetEncodedPathAndQuery();
+                string pathUrlAtual = request.GetEncodedPathAndQuery().TrimEnd('/');
                 string[] methodsAceitos = [request.Method, "*"];
 
                 if (site == null || !site.Methods.Any(m => methodsAceitos.Contains(m)))
