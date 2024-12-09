@@ -5,6 +5,7 @@
         public const string NOME_COOKIE = "Microproxy";
         public const string COOKIE_SITE = "cookieSite";
         protected IConfigurationRoot ConfigurationRoot { get; set; } = null!;
+        public Dictionary<string, Log>? Logs { get; protected set; }
         public uint MinutosValidadeCookie { get; protected set; }
         public string[] Ips { get; protected set; } = null!;
         public ushort PortaHttpRedirect { get; protected set; }
@@ -23,6 +24,7 @@
             configurationBuilder0.AddJsonFile(path0, false);
             ConfigurationRoot = configurationBuilder0.Build();
 
+            Logs = ConfigurationRoot.GetSection("Logs").Get<Dictionary<string, Log>>();
             MinutosValidadeCookie = ConfigurationRoot.GetValue<uint>("MinutosValidadeCookie");
             Sites = ConfigurationRoot.GetSection("Sites").Get<Site[]>()!;
             CertificadoPrivado = ConfigurationRoot.GetValue<string>("CertificadoPrivado")?.Trim();

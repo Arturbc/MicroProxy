@@ -33,11 +33,17 @@ namespace MicroProxy.Models
 
         public static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
         {
-            var cookiesSites = CookiesSites;
             HttpRequest request = context.Request;
             Uri urlAtual = new(request.GetDisplayUrl());
-            Uri urlAlvo;
-            Site[] sites = [.. configuracao.Sites.Where(s =>
+            Site? site = null;
+
+            if (request.Method != HttpMethods.Get) request.EnableBuffering();
+
+            try
+            {
+                var cookiesSites = CookiesSites;
+                Uri urlAlvo;
+                Site[] sites = [.. configuracao.Sites.Where(s =>
                 {
                     if (s.BindUrls == null || s.BindUrls.Length == 0) return true;
 
@@ -53,182 +59,226 @@ namespace MicroProxy.Models
                             && urlAlvo.Host == urlAtual.Host);
                     });
                 })];
-            string pathUrlAlvo = "";
-            Site? site = sites.OrderByDescending(s => s.Methods.Contains(request.Method)).ThenBy(s => s.Methods.Length)
-                .ThenBy(s => string.Join(',', s.Methods)).FirstOrDefault(s =>
-                {
-                    if (s.BindUrls == null || s.BindUrls.Length == 0) return true;
+                string pathUrlAlvo = "";
 
-                    return s.BindUrls.Any(b =>
+                site = sites.OrderByDescending(s => s.Methods.Contains(request.Method)).ThenBy(s => s.Methods.Length)
+                    .ThenBy(s => string.Join(',', s.Methods)).FirstOrDefault(s =>
                     {
-                        string? url = b;
+                        if (s.BindUrls == null || s.BindUrls.Length == 0) return true;
 
-                        urlAlvo = new(url);
-                        pathUrlAlvo = urlAlvo.AbsolutePath;
+                        return s.BindUrls.Any(b =>
+                        {
+                            string? url = b;
 
-                        return request.Path.StartsWithSegments(pathUrlAlvo);
+                            urlAlvo = new(url);
+                            pathUrlAlvo = urlAlvo.AbsolutePath;
+
+                            return request.Path.StartsWithSegments(pathUrlAlvo);
+                        });
                     });
-                });
 
-            string pathUrlAtual = request.GetEncodedPathAndQuery();
-            string[] methodsAceitos = [request.Method, "*"];
+                string pathUrlAtual = request.GetEncodedPathAndQuery();
+                string[] methodsAceitos = [request.Method, "*"];
 
-            if (site == null || !site.Methods.Any(m => methodsAceitos.Contains(m)))
-            {
-                if (sites.Length != 0 && pathUrlAlvo != "")
+                if (site == null || !site.Methods.Any(m => methodsAceitos.Contains(m)))
                 {
-                    string urlRedirect = $"{pathUrlAlvo}{pathUrlAtual}";
-
-                    context.Response.RedirectPreserveMethod(urlRedirect, true);
-                }
-                else
-                {
-                    await next(context);
-
-                    if (site != null)
+                    if (sites.Length != 0 && pathUrlAlvo != "")
                     {
-                        context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+                        string urlRedirect = $"{pathUrlAlvo}{pathUrlAtual}";
+
+                        context.Response.RedirectPreserveMethod(urlRedirect, true);
                     }
-                }
+                    else
+                    {
+                        await next(context);
 
-                return;
-            }
-
-            urlAlvo = new(site.UrlAlvo);
-            pathUrlAlvo += urlAlvo.AbsolutePath.TrimEnd('/');
-            site.UrlAtual = urlAtual.AbsoluteUri;
-            site.ReqMethodAtual = request.Method;
-
-            if (pathUrlAlvo != "")
-            {
-                Regex pathRegex = new($"^{pathUrlAlvo}");
-
-                pathUrlAtual = pathRegex.Replace(pathUrlAtual, "");
-
-                if (pathUrlAtual != request.GetEncodedPathAndQuery())
-                {
-                    context.Response.RedirectPreserveMethod(pathUrlAtual, true);
+                        if (site != null)
+                        {
+                            context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+                        }
+                    }
 
                     return;
                 }
-            }
 
-            string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
-            string ipRemoto = (context.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
-            string ipLocal = (context.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
-            string[] ipsRemotosSemFw = [ipLocal, IPAddress.Loopback.ToString(), IPAddress.IPv6Loopback.ToString()];
-            string[] propsHeaders = [];
-            CookieContainer cookieContainer = new();
+                urlAlvo = new(site.UrlAlvo);
+                pathUrlAlvo += urlAlvo.AbsolutePath.TrimEnd('/');
+                site.UrlAtual = urlAtual.AbsoluteUri;
+                site.ReqMethodAtual = request.Method;
 
-            if (cookiesSites.TryGetValue(urlAlvo, out var cookie))
-            {
-                cookieContainer.SetCookies(urlAlvo, cookie);
-            }
-
-            HttpClientHandler clientHandler = new() { CookieContainer = cookieContainer, AllowAutoRedirect = false };
-
-            site.InicializarExecutavel();
-
-            foreach (string header in headersIpFw)
-            {
-                if (!string.IsNullOrEmpty(request.Headers[header]))
+                if (pathUrlAlvo != "")
                 {
-                    ipRemoto = request.Headers[header]!;
+                    Regex pathRegex = new($"^{pathUrlAlvo}");
 
-                    break;
-                }
-            }
+                    pathUrlAtual = pathRegex.Replace(pathUrlAtual, "");
 
-            if (site.IgnorarCertificadoAlvo)
-            {
-                clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
-                clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;
-            }
-
-            HttpClient httpClient = new(clientHandler);
-            Dictionary<string, StringValues> headersReq = request.Headers
-                    .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-                .ToDictionary();
-            using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method),
-                $"{site.UrlAlvo}{pathUrlAtual}");
-
-            if (request.Method != HttpMethods.Get)
-            {
-                requestMessage.Content = new StreamContent(request.Body);
-
-                foreach (var item in requestMessage.Content.Headers.GetType().GetProperties())
-                {
-                    propsHeaders = [.. propsHeaders.Append(item.Name)];
-                };
-            }
-
-            headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
-
-            foreach (var header in headersReq.Where(h => h.Value.Count != 0))
-            {
-                string[] valores = [];
-
-                foreach (var valor in header.Value)
-                {
-                    var valorTemp = valor;
-
-                    if (valorTemp != null)
+                    if (pathUrlAtual != request.GetEncodedPathAndQuery())
                     {
-                        Regex cookieProxy = CookieMicroproxyRegex();
-                        valorTemp = cookieProxy.Replace(valorTemp, "");
+                        context.Response.RedirectPreserveMethod(pathUrlAtual, true);
+
+                        return;
+                    }
+                }
+
+                string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
+                string ipRemoto = (context.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
+                string ipLocal = (context.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
+                string[] ipsRemotosSemFw = [ipLocal, IPAddress.Loopback.ToString(), IPAddress.IPv6Loopback.ToString()];
+                string[] propsHeaders = [];
+                CookieContainer cookieContainer = new();
+
+                if (cookiesSites.TryGetValue(urlAlvo, out var cookie))
+                {
+                    cookieContainer.SetCookies(urlAlvo, cookie);
+                }
+
+                HttpClientHandler clientHandler = new() { CookieContainer = cookieContainer, AllowAutoRedirect = false };
+
+                site.InicializarExecutavel();
+
+                foreach (string header in headersIpFw)
+                {
+                    if (!string.IsNullOrEmpty(request.Headers[header]))
+                    {
+                        ipRemoto = request.Headers[header]!;
+
+                        break;
+                    }
+                }
+
+                if (site.IgnorarCertificadoAlvo)
+                {
+                    clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
+                    clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;
+                }
+
+                HttpClient httpClient = new(clientHandler);
+                Dictionary<string, StringValues> headersReq = request.Headers
+                        .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
+                    .ToDictionary();
+                using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method),
+                    $"{site.UrlAlvo}{pathUrlAtual}");
+
+                if (request.Method != HttpMethods.Get)
+                {
+                    requestMessage.Content = new StreamContent(request.Body);
+
+                    foreach (var item in requestMessage.Content.Headers.GetType().GetProperties())
+                    {
+                        propsHeaders = [.. propsHeaders.Append(item.Name)];
+                    };
+                }
+
+                headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
+
+                foreach (var header in headersReq.Where(h => h.Value.Count != 0))
+                {
+                    string[] valores = [];
+
+                    foreach (var valor in header.Value)
+                    {
+                        var valorTemp = valor;
+
+                        if (valorTemp != null)
+                        {
+                            Regex cookieProxy = CookieMicroproxyRegex();
+                            valorTemp = cookieProxy.Replace(valorTemp, "");
+                        }
+
+                        valores = [.. valores.Append(valorTemp)];
                     }
 
-                    valores = [.. valores.Append(valorTemp)];
-                }
+                    requestMessage.Headers.TryAddWithoutValidation(header.Key, valores);
 
-                requestMessage.Headers.TryAddWithoutValidation(header.Key, valores);
+                    if (requestMessage.Content != null && propsHeaders.Contains(header.Key.Replace("-", "")))
+                    {
+                        requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valores);
+                    }
+                };
 
-                if (requestMessage.Content != null && propsHeaders.Contains(header.Key.Replace("-", "")))
+                if (ipRemoto != null && ipRemoto.Length > 0 && ipRemoto != ipLocal)
                 {
-                    requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valores);
+                    foreach (var header in headersIpFw.Where(h => !requestMessage.Headers.TryGetValues(h, out _)).Reverse())
+                    {
+                        requestMessage.Headers.TryAddWithoutValidation(header, ipRemoto);
+                    }
                 }
-            };
 
-            if (ipRemoto != null && ipRemoto.Length > 0 && ipRemoto != ipLocal)
+                using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+                using HttpContent content = response.Content;
+                Dictionary<string, string[]> headersResposta = response.Headers
+                            .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
+                        .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
+                    .ToDictionary();
+
+                headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
+
+                foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
+                {
+                    string[] valores = header.Value;
+
+                    if (!context.Response.Headers.TryAdd(header.Key, valores))
+                    {
+                        context.Response.Headers.Append(header.Key, valores);
+                    }
+                };
+
+                context.Response.StatusCode = (int)response.StatusCode;
+
+                if (!cookiesSites.TryAdd(urlAlvo, cookieContainer.GetCookieHeader(urlAlvo)))
+                {
+                    cookiesSites[urlAlvo] = cookieContainer.GetCookieHeader(urlAlvo);
+                }
+
+                CookiesSites = cookiesSites;
+
+                if (context.Response.StatusCode >= 300 && context.Response.StatusCode < 400) return;
+
+                await content.CopyToAsync(context.Response.Body).ConfigureAwait(false);
+                await context.Response.CompleteAsync();
+
+                if (request.Method != HttpMethods.Get)
+                {
+                    request.Body.Seek(0, SeekOrigin.Begin);
+                    site.ReqBody = new StreamReader(request.Body).ReadToEnd();
+                }
+            }
+            catch (Exception ex)
             {
-                foreach (var header in headersIpFw.Where(h => !requestMessage.Headers.TryGetValues(h, out _)).Reverse())
+                site ??= new()
                 {
-                    requestMessage.Headers.TryAddWithoutValidation(header, ipRemoto);
+                    Exception = new(null, ex),
+                    UrlAtual = urlAtual.AbsoluteUri,
+                    ReqMethodAtual = request.Method,
+                };
+
+                if (request.Method != HttpMethods.Get)
+                {
+                    request.Body.Seek(0, SeekOrigin.Begin);
+                    site.ReqBody = new StreamReader(request.Body).ReadToEnd();
                 }
             }
 
-            using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
-            using HttpContent content = response.Content;
-            Dictionary<string, string[]> headersResposta = response.Headers
-                        .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
-                    .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-                .ToDictionary();
-
-            headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
-
-            foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
+            foreach (var log in configuracao.Logs ?? [])
             {
-                string[] valores = header.Value;
+                string pathLog = Site.ProcessarPath(Site.PathInvalidCharsRegex().Replace(log.Value.Path.ProcessarStringSubstituicao(site), "_"));
+                string nomeArquivo = log.Key.ProcessarStringSubstituicao(site);
 
-                if (!context.Response.Headers.TryAdd(header.Key, valores))
+                if (pathLog != "")
                 {
-                    context.Response.Headers.Append(header.Key, valores);
+                    if (!Directory.Exists(pathLog))
+                    {
+                        Directory.CreateDirectory(pathLog);
+                    }
+
+                    File.AppendAllText($@"{pathLog}\{nomeArquivo}", log.Value.Mensagem.ProcessarStringSubstituicao(site));
                 }
-            };
-
-            context.Response.StatusCode = (int)response.StatusCode;
-
-            if (!cookiesSites.TryAdd(urlAlvo, cookieContainer.GetCookieHeader(urlAlvo)))
-            {
-                cookiesSites[urlAlvo] = cookieContainer.GetCookieHeader(urlAlvo);
             }
 
-            CookiesSites = cookiesSites;
-
-            if (context.Response.StatusCode >= 300 && context.Response.StatusCode < 400) return;
-
-            await content.CopyToAsync(context.Response.Body).ConfigureAwait(false);
-            await context.Response.CompleteAsync();
+            if (site.Exception != null)
+            {
+                throw site.Exception;
+            }
         }
 
         private static void RedirectPreserveMethod(this HttpResponse response, string novoDestino, bool permanent = false, string? method = null)

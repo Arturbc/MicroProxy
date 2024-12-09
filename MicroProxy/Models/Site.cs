@@ -20,6 +20,8 @@ namespace MicroProxy.Models
         public bool? _autoExec = null;
         public string ReqMethodAtual = null!;
         public string UrlAtual = null!;
+        public string? ReqBody = null!;
+        public Exception? Exception = null;
 
         public string AuthorityAtual => new Uri(UrlAtual).Authority;
         public string HostAtual => new Uri(UrlAtual).Host;
@@ -31,6 +33,18 @@ namespace MicroProxy.Models
         public string SchemaAlvo => new Uri(_urlAlvo).Scheme;
         public string HostPortAlvo => new Uri(_urlAlvo).Port.ToString();
         public string PathAndQueryAlvo => new Uri(_urlAlvo).PathAndQuery.TrimEnd('/');
+        public string? ExceptionMensagem => Exception?.Message;
+        public DateTime DataHoras => DateTime.Now;
+        public string Dia => DataHoras.ToString("dd");
+        public string Mes => DataHoras.ToString("MM");
+        public string Ano => DataHoras.ToString("yyyy");
+        public string Horas24 => DataHoras.ToString("HH");
+        public string Horas12 => DataHoras.ToString("hh");
+        public string AM_PM => DataHoras.ToString("tt");
+        public string Minutos => DataHoras.ToString("mm");
+        public string Segundos => DataHoras.ToString("ss");
+        public string HorasAbreviadas => DataHoras.ToString("t");
+        public string HorasCompletas => DataHoras.ToString("T");
 
         public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos ??= ([.. value?.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))]); }
         public string UrlAlvo { get => _urlAlvo; set => _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/'); }
