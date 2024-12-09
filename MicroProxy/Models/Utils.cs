@@ -262,7 +262,7 @@ namespace MicroProxy.Models
             foreach (var log in configuracao.Logs ?? [])
             {
                 string pathLog = Site.ProcessarPath(Site.PathInvalidCharsRegex().Replace(log.Value.Path.ProcessarStringSubstituicao(site), "_"));
-                string nomeArquivo = log.Key.ProcessarStringSubstituicao(site);
+                string nomeArquivo = Site.PathInvalidCharsRegex().Replace(log.Key.ProcessarStringSubstituicao(site), "_").Replace("/", "_").Replace(@"\", "_");
 
                 if (pathLog != "")
                 {
