@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Primitives;
+﻿using Microsoft.AspNetCore.Http.Extensions;
+using Microsoft.Extensions.Primitives;
+using Newtonsoft.Json;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 
@@ -6,7 +8,7 @@ namespace MicroProxy.Models
 {
     public partial class Site
     {
-        static Process[] Executaveis = [];
+        static Executavel[] Executaveis = [];
         private string[]? _bindAlvos = null;
         private string _urlAlvo = null!;
         private string[]? _methods = null;
@@ -16,13 +18,19 @@ namespace MicroProxy.Models
         private string? _exePath = null;
         private string? _exeArgumentos = null!;
         private string? _exePathDiretorio = null!;
-        public bool? _janelaVisivel = null;
-        public bool? _autoExec = null;
-        public string ReqMethodAtual = null!;
-        public string UrlAtual = null!;
+        private bool? _janelaVisivel = null;
+        private bool? _autoExec = null;
+        private bool? _autoFechar = null;
+        public string? ReqHeaders = null;
         public string? ReqBody = null;
+        public string? RespHeadersPreAjuste = null;
+        public string? RespBody = null;
+        public string IpLocal = null!;
+        public string IpRemoto = null!;
+        public string? IpRemotoFw = null;
         public Exception? Exception = null;
 
+        private static HttpContext HttpContext => Utils.HttpContextAccessor.HttpContext!;
         public string AuthorityAtual => new Uri(UrlAtual).Authority;
         public string HostAtual => new Uri(UrlAtual).Host;
         public string SchemaAtual => new Uri(UrlAtual).Scheme;
@@ -33,6 +41,11 @@ namespace MicroProxy.Models
         public string SchemaAlvo => new Uri(_urlAlvo).Scheme;
         public string HostPortAlvo => new Uri(_urlAlvo).Port.ToString();
         public string PathAndQueryAlvo => new Uri(_urlAlvo).PathAndQuery.TrimEnd('/');
+        public string ReqMethodAtual => HttpContext.Request.Method;
+        public string ReqHeadersPreAjuste => JsonConvert.SerializeObject(HttpContext.Request.Headers.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
+        public int RespStatusCode => HttpContext.Response.StatusCode;
+        public string RespHeaders => JsonConvert.SerializeObject(HttpContext.Response.Headers.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
+        public string UrlAtual => HttpContext.Request.GetDisplayUrl();
         public string? ExceptionMensagem => Exception?.Message;
         public DateTime DataHoras => DateTime.Now;
         public string Dia => DataHoras.ToString("dd");
@@ -57,6 +70,7 @@ namespace MicroProxy.Models
         public string? ExePathDiretorio { get => _exePathDiretorio; set => _exePathDiretorio ??= value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePathDiretorio; }
         public bool JanelaVisivel { get => _janelaVisivel ?? false; set => _janelaVisivel ??= value; }
         public bool AutoExec { get => _autoExec ?? false; set => _autoExec ??= value; }
+        public bool AutoFechar { get => _autoFechar ?? !JanelaVisivel; set => _autoFechar ??= value; }
 
         public void ExibirVariaveisDisponiveis()
         {
@@ -119,10 +133,10 @@ namespace MicroProxy.Models
                 string pathExe = string.IsNullOrEmpty(exePathDiretorio) ?
                     exePath.Replace(@$"\{exeName}", "") : exePathDiretorio;
                 string[] nomesProcesso = [nomeProcesso, exeName];
-                bool consulta(Process e) => nomesProcesso.Contains(e.ProcessName) && e.StartInfo.FileName == exePath
-                    && e.StartInfo.WorkingDirectory == pathExe && e.StartInfo.Arguments == ExeArgumentos
-                    && e.StartInfo.CreateNoWindow == !JanelaVisivel;
-                var exec = Executaveis.FirstOrDefault(consulta);
+                bool consulta(Executavel e) => nomesProcesso.Contains(e.Processo.ProcessName) && e.Processo.StartInfo.FileName == exePath
+                    && e.Processo.StartInfo.WorkingDirectory == pathExe && e.Processo.StartInfo.Arguments == ExeArgumentos
+                    && e.Processo.StartInfo.CreateNoWindow == !JanelaVisivel;
+                var exec = Executaveis.FirstOrDefault(consulta)?.Processo;
 
                 exec ??= Process.GetProcesses().FirstOrDefault(p => p.Id != Environment.ProcessId && nomesProcesso.Contains(p.ProcessName)
                    && (p.MainModule == null
@@ -157,7 +171,7 @@ namespace MicroProxy.Models
 
                     if (exec != null)
                     {
-                        Executaveis = [.. Executaveis.Where(e => !e.HasExited).Append(exec)];
+                        Executaveis = [.. Executaveis.Where(e => !e.Processo.HasExited).Append(new() { Processo = exec, AutoFechar = AutoFechar })];
 
                         using (logger.BeginScope($"[SSID {exec.Id} ({exec.ProcessName})]"))
                         {
@@ -170,7 +184,7 @@ namespace MicroProxy.Models
 
         public static void OnShutdown()
         {
-            foreach (var exec in Executaveis.Where(e => e.StartInfo.CreateNoWindow || !e.Responding))
+            foreach (var exec in Executaveis.Where(e => e.AutoFechar || !e.Processo.Responding).Select(e => e.Processo))
             {
                 if (!exec.HasExited)
                 {
