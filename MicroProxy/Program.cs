@@ -89,6 +89,7 @@ internal partial class Program
 
         var app = builder.Build();
         var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+
         lifetime.ApplicationStopping.Register(OnShutdown);
 
         // Configure the HTTP request pipeline.

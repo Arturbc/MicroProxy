@@ -8,7 +8,8 @@ namespace MicroProxy.Models
 {
     public partial class Site
     {
-        static Executavel[] Executaveis = [];
+        private const int MILLISEGUNDO_AGUARDAR_FECHAR = 1000;
+        private static Executavel[] Executaveis = [];
         private string[]? _bindAlvos = null;
         private string _urlAlvo = null!;
         private string[]? _methods = null;
@@ -188,7 +189,8 @@ namespace MicroProxy.Models
             {
                 if (!exec.HasExited)
                 {
-                    exec.Close();
+                    if (exec.CloseMainWindow()) exec.WaitForExit(MILLISEGUNDO_AGUARDAR_FECHAR);
+                    else exec.Kill();
                 }
             }
         }
