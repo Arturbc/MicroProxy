@@ -13,9 +13,10 @@ namespace MicroProxy.Models
         private string[]? _bindAlvos = null;
         private string _urlAlvo = null!;
         private string[]? _methods = null;
-        public bool? _ignorarCertificadoAlvo = null;
-        public Dictionary<string, string[]>? _requestHeadersAdicionais = null;
-        public Dictionary<string, string[]>? _responseHeadersAdicionais = null;
+        private bool? _ignorarCertificadoAlvo = null;
+        private Dictionary<string, string[]>? _requestHeadersAdicionais = null;
+        private Dictionary<string, string[]>? _responseHeadersAdicionais = null;
+        private int _bufferResp;
         private string? _exePath = null;
         private string? _exeArgumentos = null!;
         private string? _exePathDiretorio = null!;
@@ -66,6 +67,7 @@ namespace MicroProxy.Models
         public bool IgnorarCertificadoAlvo { get => _ignorarCertificadoAlvo ?? false; set => _ignorarCertificadoAlvo ??= value; }
         public Dictionary<string, string[]>? RequestHeadersAdicionais { get => _requestHeadersAdicionais; set => _requestHeadersAdicionais ??= value; }
         public Dictionary<string, string[]>? ResponseHeadersAdicionais { get => _responseHeadersAdicionais; set => _responseHeadersAdicionais ??= value; }
+        public int BufferResp { get => _bufferResp; set => _bufferResp = value; }
         public string? ExePath { get => _exePath; set => _exePath ??= value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePath; }
         public string? ExeArgumentos { get => _exeArgumentos; set => _exeArgumentos ??= value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exeArgumentos; }
         public string? ExePathDiretorio { get => _exePathDiretorio; set => _exePathDiretorio ??= value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePathDiretorio; }

@@ -39,8 +39,6 @@ namespace MicroProxy.Models
             Uri urlAtual = new(request.GetDisplayUrl());
             Site? site = null;
 
-            if (request.Method != HttpMethods.Get) request.EnableBuffering();
-
             try
             {
                 var cookiesSites = CookiesSites;
@@ -167,6 +165,7 @@ namespace MicroProxy.Models
 
                         if (request.Method != HttpMethods.Get)
                         {
+                            request.EnableBuffering();
                             requestMessage.Content = new StreamContent(request.Body);
 
                             foreach (var item in requestMessage.Content.Headers.GetType().GetProperties())
@@ -251,19 +250,13 @@ namespace MicroProxy.Models
 
                         if (context.Response.StatusCode < 300 || context.Response.StatusCode >= 400)
                         {
-                            byte[] buffer = new byte[512];
-                            int bytesRead;
+                            using MemoryStream memoryStream = new();
                             using Stream streamContentResp = await content.ReadAsStreamAsync();
-                            using MemoryStream memoryStreamBodyResp = new();
 
-                            while ((bytesRead = await streamContentResp.ReadAsync(buffer)) > 0)
-                            {
-                                await context.Response.Body.WriteAsync(buffer.AsMemory(0, bytesRead));
-                                await memoryStreamBodyResp.WriteAsync(buffer.AsMemory(0, bytesRead));
-                            }
-
-                            memoryStreamBodyResp.Seek(0, SeekOrigin.Begin);
-                            site.RespBody = await new StreamReader(memoryStreamBodyResp).ReadToEndAsync();
+                            memoryStream.Seek(0, SeekOrigin.Begin);
+                            await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body]);
+                            memoryStream.Seek(0, SeekOrigin.Begin);
+                            site.RespBody = await new StreamReader(memoryStream).ReadToEndAsync();
                         }
 
                         await context.Response.CompleteAsync();
@@ -374,6 +367,34 @@ namespace MicroProxy.Models
             }
 
             return valor;
+        }
+
+        public static async Task CopyToAsync(this Stream fonte, int tambuffer, Stream[] destinos)
+        {
+            byte[] buffer = new byte[tambuffer];
+            int bytesRead;
+
+            if (tambuffer <= 0)
+            {
+                using MemoryStream memoryStream = new();
+
+                await fonte.CopyToAsync(memoryStream);
+
+                foreach (var destino in destinos)
+                {
+                    await destino.WriteAsync(memoryStream.ToArray());
+                }
+            }
+            else
+            {
+                while ((bytesRead = await fonte.ReadAsync(buffer)) > 0)
+                {
+                    foreach (var destino in destinos)
+                    {
+                        await destino.WriteAsync(buffer.AsMemory(0, bytesRead));
+                    }
+                }
+            }
         }
 
         [GeneratedRegex($"(?<=(?:^|(?:; *))){NOME_COOKIE}[^;]+(?:(?:; *)|(?: *$))")]
