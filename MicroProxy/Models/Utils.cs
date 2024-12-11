@@ -13,7 +13,7 @@ namespace MicroProxy.Models
         static string[] HeadersProibidos => ["Transfer-Encoding"];
         static string[] HeadersProibidosReq => [];
         static string[] HeadersProibidosResp => [];
-        static object _lock = new();
+        static readonly object _lock = new();
         public static readonly HttpContextAccessor HttpContextAccessor = new();
         static ISession? Sessao => HttpContextAccessor.HttpContext?.Session;
         static Dictionary<Uri, string> CookiesSites
@@ -246,21 +246,27 @@ namespace MicroProxy.Models
                         if (request.Method != HttpMethods.Get)
                         {
                             request.Body.Seek(0, SeekOrigin.Begin);
-                            site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync().ConfigureAwait(false);
+                            site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync();
                         }
 
                         if (context.Response.StatusCode < 300 || context.Response.StatusCode >= 400)
                         {
-                            await using MemoryStream memstreamResp = new();
+                            byte[] buffer = new byte[512];
+                            int bytesRead;
+                            using Stream streamContentResp = await content.ReadAsStreamAsync();
+                            using MemoryStream memoryStreamBodyResp = new();
 
-                            await content.CopyToAsync(memstreamResp).ConfigureAwait(false);
-                            await context.Response.Body.WriteAsync(memstreamResp.ToArray()).ConfigureAwait(false);
+                            while ((bytesRead = await streamContentResp.ReadAsync(buffer)) > 0)
+                            {
+                                await context.Response.Body.WriteAsync(buffer.AsMemory(0, bytesRead));
+                                await memoryStreamBodyResp.WriteAsync(buffer.AsMemory(0, bytesRead));
+                            }
 
-                            memstreamResp.Seek(0, SeekOrigin.Begin);
-                            site.RespBody = await new StreamReader(memstreamResp).ReadToEndAsync().ConfigureAwait(false);
+                            memoryStreamBodyResp.Seek(0, SeekOrigin.Begin);
+                            site.RespBody = await new StreamReader(memoryStreamBodyResp).ReadToEndAsync();
                         }
 
-                        await context.Response.CompleteAsync().ConfigureAwait(false);
+                        await context.Response.CompleteAsync();
                     }
                 }
             }
