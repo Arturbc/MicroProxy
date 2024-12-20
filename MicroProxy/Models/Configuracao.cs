@@ -10,7 +10,7 @@
         public string[] Ips { get; protected set; } = null!;
         public ushort PortaHttpRedirect { get; protected set; }
         public string? CertificadoPrivado { get; protected set; }
-        public string? CertificadoPrivadoSenha { get; protected set; }
+        public string? CertificadoPrivadoChave { get; protected set; }
         public Site[] Sites { get; protected set; }
         public string[] AllowOrigins { get; protected set; }
         public string[] AllowHeaders { get; protected set; }
@@ -28,7 +28,7 @@
             MinutosValidadeCookie = ConfigurationRoot.GetValue<uint>("MinutosValidadeCookie");
             Sites = ConfigurationRoot.GetSection("Sites").Get<Site[]>()!;
             CertificadoPrivado = ConfigurationRoot.GetValue<string>("CertificadoPrivado")?.Trim();
-            CertificadoPrivadoSenha = ConfigurationRoot.GetValue<string>("CertificadoPrivadoSenha");
+            CertificadoPrivadoChave = ConfigurationRoot.GetValue<string>("CertificadoPrivadoChave");
             PortaHttpRedirect = ConfigurationRoot.GetValue<ushort?>("PortaHttpRedirect") ?? 0;
             Ips = ConfigurationRoot.GetSection("IPs").Get<string[]>() ?? [];
             AllowOrigins = ConfigurationRoot.GetSection("Cors:AllowHosts").Get<string[]>() ?? [];

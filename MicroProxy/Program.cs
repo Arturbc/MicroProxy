@@ -3,6 +3,7 @@ using static MicroProxy.Models.Configuracao;
 using static MicroProxy.Models.Site;
 
 #if !DEBUG
+using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
 using System.Net;
 #endif
@@ -77,9 +78,42 @@ internal partial class Program
                             porta = 443;
                         }
 
+                        X509Certificate2? certificado = null;
+                        bool certificadoArquivo = File.Exists(configuracao.CertificadoPrivado);
+                        using X509Store x509StoreUsuario = new(StoreLocation.CurrentUser);
+                        using X509Store x509StorePC = new(StoreLocation.LocalMachine);
+
+                        if (!certificadoArquivo)
+                        {
+                            x509StoreUsuario.Open(OpenFlags.ReadOnly);
+                            x509StorePC.Open(OpenFlags.ReadOnly);
+
+                            var certificados = x509StoreUsuario.Certificates.Union(x509StorePC.Certificates)
+                                .OrderByDescending(c => c.NotAfter).ThenByDescending(c => c.NotBefore);
+
+                            certificado = certificados.FirstOrDefault(c => c.Subject == configuracao.CertificadoPrivado)
+                                ?? certificados.First(c => c.Subject.Contains(configuracao.CertificadoPrivado));
+                            x509StoreUsuario.Close();
+                            x509StorePC.Close();
+                        }
+                        else
+                        {
+                            bool certificadoChaveArquivo = File.Exists(configuracao.CertificadoPrivadoChave) ||
+                                    string.IsNullOrEmpty(configuracao.CertificadoPrivadoChave);
+
+                            if (certificadoChaveArquivo)
+                            {
+                                certificado = X509Certificate2.CreateFromPemFile(ProcessarPath(configuracao.CertificadoPrivado), configuracao.CertificadoPrivadoChave);
+                            }
+                            else
+                            {
+                                certificado = new(ProcessarPath(configuracao.CertificadoPrivado), configuracao.CertificadoPrivadoChave);
+                            }
+                        }
+
                         serverOptions.Listen(ip, porta, listenOptions =>
                         {
-                            listenOptions.UseHttps(configuracao.CertificadoPrivado, configuracao.CertificadoPrivadoSenha);
+                            listenOptions.UseHttps(certificado);
                         });
                     }
                 }
