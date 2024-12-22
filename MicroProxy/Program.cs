@@ -73,7 +73,7 @@ internal partial class Program
                     {
                         https = true;
 
-                        if (porta == 80)
+                        if (porta == 80 && !ipPorta.Groups["porta"].Success)
                         {
                             porta = 443;
                         }
