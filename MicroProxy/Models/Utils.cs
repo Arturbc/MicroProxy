@@ -265,10 +265,8 @@ namespace MicroProxy.Models
             }
             catch (Exception ex)
             {
-                site ??= new()
-                {
-                    Exception = new(null, ex),
-                };
+                site ??= new();
+                site.Exception = new(null, ex);
             }
 
             site ??= new();
