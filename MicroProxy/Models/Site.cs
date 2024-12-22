@@ -48,7 +48,22 @@ namespace MicroProxy.Models
         public int RespStatusCode => HttpContext.Response.StatusCode;
         public string RespHeaders => JsonConvert.SerializeObject(HttpContext.Response.Headers.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
         public string UrlAtual => HttpContext.Request.GetDisplayUrl();
-        public string? ExceptionMensagem => Exception?.Message;
+        public string? ExceptionMensagem
+        {
+            get
+            {
+                var excecao = Exception;
+                var mensagem = excecao?.Message;
+
+                while (excecao?.InnerException != null)
+                {
+                    mensagem += Environment.NewLine + excecao.InnerException.Message;
+                    excecao = excecao?.InnerException;
+                }
+
+                return mensagem;
+            }
+        }
         public DateTime DataHoras => DateTime.Now;
         public string Dia => DataHoras.ToString("dd");
         public string Mes => DataHoras.ToString("MM");

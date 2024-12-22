@@ -267,6 +267,7 @@ namespace MicroProxy.Models
             {
                 site ??= new();
                 site.Exception = new(null, ex);
+                context.Response.StatusCode = StatusCodes.Status500InternalServerError;
             }
 
             site ??= new();
