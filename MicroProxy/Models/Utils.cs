@@ -297,7 +297,7 @@ namespace MicroProxy.Models
                             mensagem = tratamentoRegex.Replace(mensagem, tratamentosRegex[i]);
                         }
 
-                        if (mensagem != "") File.AppendAllText($@"{pathLog}\{nomeArquivo}", mensagem);
+                        if (mensagem != "") File.AppendAllText($"{pathLog}/{nomeArquivo}", mensagem);
                     }
                 }
             }
