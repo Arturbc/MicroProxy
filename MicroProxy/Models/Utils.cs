@@ -10,13 +10,13 @@ namespace MicroProxy.Models
 {
     public static partial class Utils
     {
-        static string[] HeadersProibidos => ["Transfer-Encoding"];
-        static string[] HeadersProibidosReq => [];
-        static string[] HeadersProibidosResp => [];
-        static readonly object _lock = new();
+        private static string[] HeadersProibidos => ["Transfer-Encoding"];
+        private static string[] HeadersProibidosReq => [];
+        private static string[] HeadersProibidosResp => [];
+        private static readonly object _lock = new();
         public static readonly HttpContextAccessor HttpContextAccessor = new();
-        static ISession? Sessao => HttpContextAccessor.HttpContext?.Session;
-        static Dictionary<Uri, string> CookiesSites
+        private static ISession? Sessao => HttpContextAccessor.HttpContext?.Session;
+        private static Dictionary<Uri, string> CookiesSites
         {
             get
             {
@@ -32,12 +32,18 @@ namespace MicroProxy.Models
             }
             set => Sessao?.SetObjectAsJson(COOKIE_SITE, value);
         }
+        private static string? PathUrlAtual
+        {
+            get => Sessao?.GetObjectFromJson<string>(PATH_SITE);
+            set { if (value != null) Sessao?.SetObjectAsJson(PATH_SITE, value); else Sessao?.Remove(PATH_SITE); }
+        }
 
         public static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
         {
             HttpRequest request = context.Request;
             Uri urlAtual = new(request.GetDisplayUrl());
             Site? site = null;
+            Uri? melhorBind = null;
 
             try
             {
@@ -53,43 +59,46 @@ namespace MicroProxy.Models
 
                         urlAlvo = new(url, UriKind.Absolute);
 
-                        return $"{urlAlvo.Scheme}://{urlAlvo.Authority}" == $"{urlAtual.Scheme}://{urlAtual.Authority}"
+                        if($"{urlAlvo.Scheme}://{urlAlvo.Authority}" == $"{urlAtual.Scheme}://{urlAtual.Authority}{PathUrlAtual}"
                             || (!configuracao.Sites.Any(ss => ss.BindUrls != null
-                                    && ss.BindUrls.Contains($"{urlAtual.Scheme}://{urlAtual.Authority}"))
-                                && urlAlvo.Authority == urlAtual.Authority)
+                                    && ss.BindUrls.Contains($"{urlAtual.Scheme}://{urlAtual.Authority}{PathUrlAtual}"))
+                                && urlAlvo.Authority == $"{urlAtual.Authority}{PathUrlAtual}")
                             || (!configuracao.Sites.Any(ss => ss.BindUrls != null
-                                    && ss.BindUrls.Select(bu => new Uri(bu).Authority).Contains($"{urlAtual.Authority}"))
-                                && urlAlvo.Host == urlAtual.Host);
+                                    && ss.BindUrls.Select(bu => new Uri(bu).Authority).Contains($"{urlAtual.Authority}{PathUrlAtual}"))
+                                && urlAlvo.Host == $"{urlAtual.Host}{PathUrlAtual}")
+                            )
+                        {
+                            if ((melhorBind == null || urlAtual.AbsolutePath.Length - urlAlvo.AbsolutePath.Length < melhorBind.AbsolutePath.Length - urlAlvo.AbsolutePath.Length)
+                                && urlAtual.PathAndQuery.StartsWith(urlAlvo.PathAndQuery))
+                            {
+                                melhorBind = urlAlvo;
+                            }
+
+                            if (melhorBind != null && melhorBind == urlAlvo) return true;
+                        }
+
+                        return false;
                     });
                 })];
-                string pathUrlAlvo = "";
 
                 site = sites.OrderByDescending(s => s.Methods.Contains(request.Method)).ThenBy(s => s.Methods.Length)
-                    .ThenBy(s => string.Join(',', s.Methods)).FirstOrDefault(s =>
-                    {
-                        if (s.BindUrls == null || s.BindUrls.Length == 0) return true;
-
-                        return s.BindUrls.Any(b =>
-                        {
-                            string? url = b;
-
-                            urlAlvo = new(url);
-                            pathUrlAlvo = urlAlvo.AbsolutePath.TrimEnd('/');
-
-                            return request.Path.StartsWithSegments(pathUrlAlvo);
-                        });
-                    });
+                    .ThenBy(s => string.Join(',', s.Methods))
+                    .FirstOrDefault();
 
                 string pathUrlAtual = request.GetEncodedPathAndQuery();
                 string[] methodsAceitos = [request.Method, "*"];
 
                 if (site == null || !site.Methods.Any(m => methodsAceitos.Contains(m)))
                 {
-                    if (sites.Length != 0 && pathUrlAlvo != "")
+                    if (urlAtual.AbsolutePath != "/" && PathUrlAtual != null)
                     {
-                        string urlRedirect = $"{pathUrlAlvo}{pathUrlAtual}";
+                        var paths = urlAtual.AbsolutePath.Trim('/').Split('/');
 
-                        context.Response.RedirectPreserveMethod(urlRedirect, true);
+                        if (paths.Length == 1)
+                        {
+                            PathUrlAtual = null;
+                            context.Response.RedirectPreserveMethod("/", true);
+                        }
                     }
                     else
                     {
@@ -105,22 +114,29 @@ namespace MicroProxy.Models
                 if (site != null && context.Response.StatusCode == StatusCodes.Status200OK)
                 {
                     urlAlvo = new(site.UrlAlvo);
-                    pathUrlAlvo += urlAlvo.AbsolutePath.TrimEnd('/');
 
-                    if (pathUrlAlvo != "")
+                    if (melhorBind != null && melhorBind.AbsolutePath != "/")
                     {
-                        Regex pathRegex = new($"^{pathUrlAlvo}");
+                        var paths = melhorBind.AbsolutePath.Trim('/').Split('/');
 
-                        pathUrlAtual = pathRegex.Replace(pathUrlAtual, "");
-
-                        if (pathUrlAtual != request.GetEncodedPathAndQuery())
+                        if (PathUrlAtual == null || paths.Length == 1)
                         {
-                            context.Response.RedirectPreserveMethod(pathUrlAtual, true);
+                            PathUrlAtual = $"/{paths[0]}";
+                        }
+
+                        if (!pathUrlAtual.StartsWith(PathUrlAtual))
+                        {
+                            context.Response.RedirectPreserveMethod(PathUrlAtual + pathUrlAtual, true);
                         }
                     }
 
                     if (context.Response.StatusCode == StatusCodes.Status200OK)
                     {
+                        if (PathUrlAtual != null)
+                        {
+                            pathUrlAtual = '/' + string.Join('/', pathUrlAtual.TrimStart('/').Split('/')[1..]);
+                        }
+
                         string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
 
                         site.IpLocal = (context.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
