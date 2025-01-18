@@ -43,12 +43,20 @@ namespace MicroProxy.Models
             HttpRequest request = context.Request;
             Uri urlAtual = new(request.GetDisplayUrl());
             Site? site = null;
-            Uri? melhorBind = null;
 
             try
             {
+                bool pathUrlCookieDisponivel = PathUrlAtual != null;
                 var cookiesSites = CookiesSites;
                 Uri urlAlvo;
+                Uri? melhorBind = null;
+                string? pathUrlAnterior = PathUrlAtual;
+
+                if (PathUrlAtual != null && !urlAtual.AbsolutePath.StartsWith(PathUrlAtual))
+                {
+                    PathUrlAtual = null;
+                }
+
                 Site[] sites = [.. configuracao.Sites.Where(s =>
                 {
                     if (s.BindUrls == null || s.BindUrls.Length == 0) return true;
@@ -59,23 +67,42 @@ namespace MicroProxy.Models
 
                         urlAlvo = new(url, UriKind.Absolute);
 
-                        if($"{urlAlvo.Scheme}://{urlAlvo.Authority}" == $"{urlAtual.Scheme}://{urlAtual.Authority}{PathUrlAtual}"
-                            || (!configuracao.Sites.Any(ss => ss.BindUrls != null
-                                    && ss.BindUrls.Contains($"{urlAtual.Scheme}://{urlAtual.Authority}{PathUrlAtual}"))
-                                && urlAlvo.Authority == $"{urlAtual.Authority}{PathUrlAtual}")
-                            || (!configuracao.Sites.Any(ss => ss.BindUrls != null
-                                    && ss.BindUrls.Select(bu => new Uri(bu).Authority).Contains($"{urlAtual.Authority}{PathUrlAtual}"))
-                                && urlAlvo.Host == $"{urlAtual.Host}{PathUrlAtual}")
-                            )
+                        do
                         {
-                            if ((melhorBind == null || urlAtual.AbsolutePath.Length - urlAlvo.AbsolutePath.Length < melhorBind.AbsolutePath.Length - urlAlvo.AbsolutePath.Length)
-                                && urlAtual.PathAndQuery.StartsWith(urlAlvo.PathAndQuery))
+                            if($"{urlAlvo.Scheme}://{urlAlvo.Authority}{urlAlvo.AbsolutePath}" == $"{urlAtual.Scheme}://{urlAtual.Authority}{PathUrlAtual}"
+                                || (!configuracao.Sites.Any(ss => ss.BindUrls != null
+                                        && ss.BindUrls.Contains($"{urlAtual.Scheme}://{urlAtual.Authority}{PathUrlAtual}"))
+                                    && $"{urlAlvo.Authority}{urlAlvo.AbsolutePath}" == $"{urlAtual.Authority}{PathUrlAtual}")
+                                || (!configuracao.Sites.Any(ss => ss.BindUrls != null
+                                        && ss.BindUrls.Select(bu => new Uri(bu).Authority).Contains($"{urlAtual.Authority}{PathUrlAtual}"))
+                                    && $"{urlAlvo.Host}{urlAlvo.AbsolutePath}" == $"{urlAtual.Host}{PathUrlAtual}")
+                                )
                             {
-                                melhorBind = urlAlvo;
+                                if (melhorBind == null ||
+                                    urlAtual.AbsolutePath.Length - urlAlvo.AbsolutePath.Length <
+                                    melhorBind.AbsolutePath.Length - urlAlvo.AbsolutePath.Length)
+                                {
+                                    melhorBind = urlAlvo;
+                                }
+
+                                if (melhorBind != null && melhorBind == urlAlvo) return true;
                             }
 
-                            if (melhorBind != null && melhorBind == urlAlvo) return true;
+                            pathUrlCookieDisponivel = PathUrlAtual != null;
+
+                            if (!pathUrlCookieDisponivel)
+                            {
+                                if (pathUrlAnterior != null || urlAtual.AbsolutePath.StartsWith(urlAlvo.AbsolutePath))
+                                {
+                                    PathUrlAtual = pathUrlAnterior ?? urlAlvo.AbsolutePath;
+                                }
+                                else
+                                {
+                                    break;
+                                }
+                            }
                         }
+                        while (!pathUrlCookieDisponivel);
 
                         return false;
                     });
@@ -115,19 +142,9 @@ namespace MicroProxy.Models
                 {
                     urlAlvo = new(site.UrlAlvo);
 
-                    if (melhorBind != null && melhorBind.AbsolutePath != "/")
+                    if (PathUrlAtual != null && !pathUrlAtual.StartsWith(PathUrlAtual))
                     {
-                        var paths = melhorBind.AbsolutePath.Trim('/').Split('/');
-
-                        if (PathUrlAtual == null || paths.Length == 1)
-                        {
-                            PathUrlAtual = $"/{paths[0]}";
-                        }
-
-                        if (!pathUrlAtual.StartsWith(PathUrlAtual))
-                        {
-                            context.Response.RedirectPreserveMethod(PathUrlAtual + pathUrlAtual, true);
-                        }
+                        context.Response.RedirectPreserveMethod(PathUrlAtual + pathUrlAtual, true);
                     }
 
                     if (context.Response.StatusCode == StatusCodes.Status200OK)
@@ -227,7 +244,7 @@ namespace MicroProxy.Models
                             }
                         }
 
-                        site.ReqHeaders = JsonConvert.SerializeObject(requestMessage.Headers.NonValidated.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore }); ;
+                        site.ReqHeaders = JsonConvert.SerializeObject(requestMessage.Headers.NonValidated.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
 
                         using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
                         using HttpContent content = response.Content;
@@ -237,7 +254,7 @@ namespace MicroProxy.Models
                             .ToDictionary();
 
                         headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
-                        site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore }); ;
+                        site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
 
                         foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
                         {
@@ -273,9 +290,8 @@ namespace MicroProxy.Models
                             await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body]);
                             memoryStream.Seek(0, SeekOrigin.Begin);
                             site.RespBody = await new StreamReader(memoryStream).ReadToEndAsync();
+                            await context.Response.CompleteAsync();
                         }
-
-                        await context.Response.CompleteAsync();
                     }
                 }
             }
