@@ -46,71 +46,88 @@ namespace MicroProxy.Models
 
             try
             {
-                bool pathUrlCookieDisponivel = PathUrlAtual != null;
                 var cookiesSites = CookiesSites;
                 Uri urlAlvo;
                 Uri? melhorBind = null;
-                string? pathUrlAnterior = PathUrlAtual;
+                string? pathUrlAnterior = !string.IsNullOrEmpty(PathUrlAtual) ? PathUrlAtual : null;
+                Site[] sites = [];
 
-                if (PathUrlAtual != null && !urlAtual.AbsolutePath.StartsWith(PathUrlAtual))
+                while (sites.Length == 0 && pathUrlAnterior == PathUrlAtual)
                 {
-                    PathUrlAtual = null;
+                    if (PathUrlAtual != null && !urlAtual.AbsolutePath.StartsWith(PathUrlAtual))
+                    {
+                        PathUrlAtual = null;
+                    }
+
+                    sites = [.. configuracao.Sites.Where(s =>
+                    {
+                        if (s.BindUrls == null || s.BindUrls.Length == 0) return true;
+
+                        return s.BindUrls.Any(b =>
+                        {
+                            string? url = b;
+
+                            urlAlvo = new(url, UriKind.Absolute);
+
+                            const int iMin = 1;
+                            int i = Math.Min(urlAtual.Segments.Length, urlAlvo.Segments.Length) + 1;
+
+                            while(--i >= iMin)
+                            {
+                                string partePathUrlAtual = PathUrlAtual ?? (i > 1 ? string.Join("", urlAtual.Segments[0..i]).TrimEnd('/') : pathUrlAnterior ?? "");
+
+                                if (PathUrlAtual != null)
+                                {
+                                    i = iMin;
+                                }
+
+                                if($"{urlAlvo.Scheme}://{urlAlvo.Authority}{urlAlvo.AbsolutePath}" == $"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}"
+                                    || (!configuracao.Sites.Any(ss => ss.BindUrls != null
+                                            && ss.BindUrls.Contains($"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}"))
+                                        && $"{urlAlvo.Authority}{urlAlvo.AbsolutePath}" == $"{urlAtual.Authority}{partePathUrlAtual}")
+                                    || (!configuracao.Sites.Any(ss => ss.BindUrls != null
+                                            && ss.BindUrls.Select(bu => new Uri(bu).Authority).Contains($"{urlAtual.Authority}{partePathUrlAtual}"))
+                                        && $"{urlAlvo.Host}{urlAlvo.AbsolutePath}" == $"{urlAtual.Host}{partePathUrlAtual}")
+                                    )
+                                {
+                                    if (melhorBind == null || urlAlvo.AbsolutePath.Length > melhorBind.AbsolutePath.Length
+                                        || !melhorBind.AbsolutePath.StartsWith(urlAlvo.AbsolutePath))
+                                    {
+                                        melhorBind = urlAlvo;
+
+                                        if (melhorBind.AbsolutePath != "" && pathUrlAnterior != melhorBind.AbsolutePath)
+                                        {
+                                            PathUrlAtual = melhorBind.AbsolutePath;
+                                        }
+                                    }
+
+                                    if (melhorBind != null && melhorBind == urlAlvo) return true;
+                                }
+                            }
+
+                            return false;
+                        });
+                    })];
+
+                    if (pathUrlAnterior != null)
+                    {
+                        if (PathUrlAtual == null && melhorBind != null)
+                        {
+                            PathUrlAtual = pathUrlAnterior;
+                        }
+
+                        pathUrlAnterior = null;
+                    }
+                    else
+                    {
+                        break;
+                    }
                 }
 
-                Site[] sites = [.. configuracao.Sites.Where(s =>
-                {
-                    if (s.BindUrls == null || s.BindUrls.Length == 0) return true;
-
-                    return s.BindUrls.Any(b =>
-                    {
-                        string? url = b;
-
-                        urlAlvo = new(url, UriKind.Absolute);
-
-                        do
-                        {
-                            if($"{urlAlvo.Scheme}://{urlAlvo.Authority}{urlAlvo.AbsolutePath}" == $"{urlAtual.Scheme}://{urlAtual.Authority}{PathUrlAtual}"
-                                || (!configuracao.Sites.Any(ss => ss.BindUrls != null
-                                        && ss.BindUrls.Contains($"{urlAtual.Scheme}://{urlAtual.Authority}{PathUrlAtual}"))
-                                    && $"{urlAlvo.Authority}{urlAlvo.AbsolutePath}" == $"{urlAtual.Authority}{PathUrlAtual}")
-                                || (!configuracao.Sites.Any(ss => ss.BindUrls != null
-                                        && ss.BindUrls.Select(bu => new Uri(bu).Authority).Contains($"{urlAtual.Authority}{PathUrlAtual}"))
-                                    && $"{urlAlvo.Host}{urlAlvo.AbsolutePath}" == $"{urlAtual.Host}{PathUrlAtual}")
-                                )
-                            {
-                                if (melhorBind == null ||
-                                    urlAtual.AbsolutePath.Length - urlAlvo.AbsolutePath.Length <
-                                    melhorBind.AbsolutePath.Length - urlAlvo.AbsolutePath.Length)
-                                {
-                                    melhorBind = urlAlvo;
-                                }
-
-                                if (melhorBind != null && melhorBind == urlAlvo) return true;
-                            }
-
-                            pathUrlCookieDisponivel = PathUrlAtual != null;
-
-                            if (!pathUrlCookieDisponivel)
-                            {
-                                if (pathUrlAnterior != null || urlAtual.AbsolutePath.StartsWith(urlAlvo.AbsolutePath))
-                                {
-                                    PathUrlAtual = pathUrlAnterior ?? urlAlvo.AbsolutePath;
-                                }
-                                else
-                                {
-                                    break;
-                                }
-                            }
-                        }
-                        while (!pathUrlCookieDisponivel);
-
-                        return false;
-                    });
-                })];
-
-                site = sites.OrderByDescending(s => s.Methods.Contains(request.Method)).ThenBy(s => s.Methods.Length)
+                site = sites.OrderByDescending(s => s.BindUrls == null)
+                    .ThenByDescending(s => s.Methods.Contains(request.Method)).ThenBy(s => s.Methods.Length)
                     .ThenBy(s => string.Join(',', s.Methods))
-                    .FirstOrDefault();
+                    .FirstOrDefault(s => s.BindUrls == null || s.BindUrls.Any(b => new Uri(b) == melhorBind));
 
                 string pathUrlAtual = request.GetEncodedPathAndQuery();
                 string[] methodsAceitos = [request.Method, "*"];
@@ -119,9 +136,7 @@ namespace MicroProxy.Models
                 {
                     if (urlAtual.AbsolutePath != "/" && PathUrlAtual != null)
                     {
-                        var paths = urlAtual.AbsolutePath.Trim('/').Split('/');
-
-                        if (paths.Length == 1)
+                        if (urlAtual.Segments.Length == 1)
                         {
                             PathUrlAtual = null;
                             context.Response.RedirectPreserveMethod("/", true);
@@ -149,9 +164,9 @@ namespace MicroProxy.Models
 
                     if (context.Response.StatusCode == StatusCodes.Status200OK)
                     {
-                        if (PathUrlAtual != null)
+                        if (PathUrlAtual != null && melhorBind != null && melhorBind.Segments.Length > 1)
                         {
-                            pathUrlAtual = '/' + string.Join('/', pathUrlAtual.TrimStart('/').Split('/')[1..]);
+                            pathUrlAtual = '/' + string.Join('/', pathUrlAtual.TrimStart('/').Split('/')[(melhorBind.Segments.Length - 1)..]);
                         }
 
                         string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
@@ -219,8 +234,26 @@ namespace MicroProxy.Models
 
                                 if (valorTemp != null)
                                 {
-                                    Regex cookieProxy = CookieMicroproxyRegex();
-                                    valorTemp = cookieProxy.Replace(valorTemp, "");
+                                    if (valorTemp.StartsWith("http") && Uri.IsWellFormedUriString(valorTemp, UriKind.Absolute))
+                                    {
+                                        if (PathUrlAtual != null)
+                                        {
+                                            Uri hSite = new(valorTemp);
+
+                                            if (hSite.AbsolutePath.StartsWith(PathUrlAtual))
+                                            {
+                                                valorTemp = valorTemp.Replace($"{hSite.Authority}{PathUrlAtual}", hSite.Authority);
+                                            }
+                                            else
+                                            {
+                                                valorTemp = valorTemp.Replace(hSite.Authority, $"{hSite.Authority}{PathUrlAtual}");
+                                            }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        valorTemp = CookieMicroproxyRegex().Replace(valorTemp, "");
+                                    }
                                 }
 
                                 valores = [.. valores.Append(valorTemp)];
