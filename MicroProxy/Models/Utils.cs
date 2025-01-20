@@ -280,7 +280,7 @@ namespace MicroProxy.Models
 
                         site.ReqHeaders = JsonConvert.SerializeObject(requestMessage.Headers.NonValidated.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
 
-                        using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+                        using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead);
                         using HttpContent content = response.Content;
                         Dictionary<string, string[]> headersResposta = response.Headers
                                     .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
