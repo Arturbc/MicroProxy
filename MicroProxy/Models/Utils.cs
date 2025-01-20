@@ -75,27 +75,28 @@ namespace MicroProxy.Models
                             while(--i >= iMin)
                             {
                                 string partePathUrlAtual = PathUrlAtual ?? (i > 1 ? string.Join("", urlAtual.Segments[0..i]).TrimEnd('/') : pathUrlAnterior ?? "");
+                                string pathUrlAlvo = urlAlvo.AbsolutePath.TrimEnd('/');
 
                                 if (PathUrlAtual != null)
                                 {
                                     i = iMin;
                                 }
 
-                                if($"{urlAlvo.Scheme}://{urlAlvo.Authority}{urlAlvo.AbsolutePath}" == $"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}"
+                                if($"{urlAlvo.Scheme}://{urlAlvo.Authority}{pathUrlAlvo}" == $"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}"
                                     || (!configuracao.Sites.Any(ss => ss.BindUrls != null
                                             && ss.BindUrls.Contains($"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}"))
-                                        && $"{urlAlvo.Authority}{urlAlvo.AbsolutePath}" == $"{urlAtual.Authority}{partePathUrlAtual}")
+                                        && $"{urlAlvo.Authority}{pathUrlAlvo}" == $"{urlAtual.Authority}{partePathUrlAtual}")
                                     || (!configuracao.Sites.Any(ss => ss.BindUrls != null
                                             && ss.BindUrls.Select(bu => new Uri(bu).Authority).Contains($"{urlAtual.Authority}{partePathUrlAtual}"))
-                                        && $"{urlAlvo.Host}{urlAlvo.AbsolutePath}" == $"{urlAtual.Host}{partePathUrlAtual}")
+                                        && $"{urlAlvo.Host}{pathUrlAlvo}" == $"{urlAtual.Host}{partePathUrlAtual}")
                                     )
                                 {
-                                    if (melhorBind == null || urlAlvo.AbsolutePath.Length > melhorBind.AbsolutePath.Length
-                                        || !melhorBind.AbsolutePath.StartsWith(urlAlvo.AbsolutePath))
+                                    if (melhorBind == null || pathUrlAlvo.Length > melhorBind.AbsolutePath.Length
+                                        || !melhorBind.AbsolutePath.StartsWith(pathUrlAlvo))
                                     {
                                         melhorBind = urlAlvo;
 
-                                        if (melhorBind.AbsolutePath != "" && pathUrlAnterior != melhorBind.AbsolutePath)
+                                        if (pathUrlAlvo != "" && pathUrlAnterior != pathUrlAlvo)
                                         {
                                             PathUrlAtual = melhorBind.AbsolutePath;
                                         }
