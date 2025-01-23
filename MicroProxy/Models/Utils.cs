@@ -1,6 +1,7 @@
 ﻿using MicroProxy.Extensions;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
 using System.Net;
@@ -166,7 +167,6 @@ namespace MicroProxy.Models
 
                     if (context.Response.StatusCode == StatusCodes.Status200OK)
                     {
-
                         site.InicializarExecutavel();
 
                         if (PathUrlAtual != null && melhorBind != null && melhorBind.Segments.Length > 1)
@@ -174,26 +174,34 @@ namespace MicroProxy.Models
                             pathUrlAtual = '/' + string.Join('/', pathUrlAtual.TrimStart('/').Split('/')[(melhorBind.Segments.Length - 1)..]);
                         }
 
+                        site.UrlAlvo = $"{site.UrlAlvo}{pathUrlAtual}";
+
                         if (request.Method == HttpMethods.Get
                             && ((configuracao.ArquivosEstaticos != null && configuracao.ArquivosEstaticos != "")
                                 || (site.ArquivosEstaticos != null && site.ArquivosEstaticos != "")))
                         {
-                            string pathArquivoEstatico = Site.ProcessarPath($"{configuracao.ArquivosEstaticos?.Trim(['/', '\\'])}/" +
-                                $"{site.ArquivosEstaticos?.Trim(['/', '\\'])}{pathUrlAtual}".ProcessarStringSubstituicao(site));
+                            string pathUrlAtualAjustado = new Uri(site.UrlAlvo).AbsolutePath;
+                            string pathDiretorioArquivo = Site.ProcessarPath($"{configuracao.ArquivosEstaticos?.Trim(['/', '\\'])}/" +
+                                $"{site.ArquivosEstaticos?.Trim(['/', '\\'])}".ProcessarStringSubstituicao(site));
+                            string pathArquivoEstatico = pathDiretorioArquivo + pathUrlAtualAjustado;
+                            var arquivo = new PhysicalFileProvider(pathDiretorioArquivo).GetFileInfo(pathUrlAtualAjustado.Trim(['/', '\\']));
 
-                            if (Path.Exists(pathArquivoEstatico))
+                            if (arquivo.Exists)
                             {
                                 var provedor = new FileExtensionContentTypeProvider();
-                                using var conteudoResposta = File.OpenRead(pathArquivoEstatico);
+                                using var conteudoResposta = arquivo.CreateReadStream();
+
+                                context.Response.ContentLength = arquivo.Length;
 
                                 if (provedor.TryGetContentType(pathArquivoEstatico, out string? tipoConteudo))
                                 {
                                     context.Response.ContentType = tipoConteudo;
                                 }
 
-                                site.RespBody = await new StreamReader(conteudoResposta).ReadToEndAsync();
-                                await context.Response.WriteAsync(site.RespBody);
+                                await context.Response.SendFileAsync(arquivo);
                                 await context.Response.CompleteAsync();
+                                site.RespBody = await new StreamReader(conteudoResposta).ReadToEndAsync();
+                                conteudoResposta.Seek(0, SeekOrigin.Begin);
                             }
                         }
 
@@ -230,8 +238,6 @@ namespace MicroProxy.Models
                                 clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
                                 clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;
                             }
-
-                            site.UrlAlvo = $"{site.UrlAlvo}{pathUrlAtual}";
 
                             HttpClient httpClient = new(clientHandler);
                             Dictionary<string, StringValues> headersReq = request.Headers
@@ -349,9 +355,9 @@ namespace MicroProxy.Models
 
                                 memoryStream.Seek(0, SeekOrigin.Begin);
                                 await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body]);
+                                await context.Response.CompleteAsync();
                                 memoryStream.Seek(0, SeekOrigin.Begin);
                                 site.RespBody = await new StreamReader(memoryStream).ReadToEndAsync();
-                                await context.Response.CompleteAsync();
                             }
                         }
                     }
