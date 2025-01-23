@@ -14,6 +14,7 @@ namespace MicroProxy.Models
         private string _urlAlvo = null!;
         private string[]? _methods = null;
         private bool? _ignorarCertificadoAlvo = null;
+        private string? _arquivosEstaticos = null;
         private Dictionary<string, string[]>? _requestHeadersAdicionais = null;
         private Dictionary<string, string[]>? _responseHeadersAdicionais = null;
         private int _bufferResp;
@@ -78,8 +79,9 @@ namespace MicroProxy.Models
 
         public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos ??= ([.. value?.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))]); }
         public string UrlAlvo { get => _urlAlvo; set => _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/'); }
-        public string[] Methods { get => _methods!; set => _methods ??= value ?? ["*"]; }
         public bool IgnorarCertificadoAlvo { get => _ignorarCertificadoAlvo ?? false; set => _ignorarCertificadoAlvo ??= value; }
+        public string[] Methods { get => _methods!; set => _methods ??= value ?? ["*"]; }
+        public string? ArquivosEstaticos { get => _arquivosEstaticos; set => _arquivosEstaticos ??= value; }
         public Dictionary<string, string[]>? RequestHeadersAdicionais { get => _requestHeadersAdicionais; set => _requestHeadersAdicionais ??= value; }
         public Dictionary<string, string[]>? ResponseHeadersAdicionais { get => _responseHeadersAdicionais; set => _responseHeadersAdicionais ??= value; }
         public int BufferResp { get => _bufferResp; set => _bufferResp = value; }

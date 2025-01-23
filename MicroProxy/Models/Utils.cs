@@ -1,5 +1,6 @@
 ﻿using MicroProxy.Extensions;
 using Microsoft.AspNetCore.Http.Extensions;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
 using System.Net;
@@ -165,166 +166,193 @@ namespace MicroProxy.Models
 
                     if (context.Response.StatusCode == StatusCodes.Status200OK)
                     {
+
+                        site.InicializarExecutavel();
+
                         if (PathUrlAtual != null && melhorBind != null && melhorBind.Segments.Length > 1)
                         {
                             pathUrlAtual = '/' + string.Join('/', pathUrlAtual.TrimStart('/').Split('/')[(melhorBind.Segments.Length - 1)..]);
                         }
 
-                        string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
-
-                        site.IpLocal = (context.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
-                        site.IpRemoto = (context.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
-
-                        string[] ipsRemotosSemFw = [site.IpLocal, IPAddress.Loopback.ToString(), IPAddress.IPv6Loopback.ToString()];
-                        string[] propsHeaders = [];
-                        CookieContainer cookieContainer = new();
-
-                        if (cookiesSites.TryGetValue(urlAlvo, out var cookie))
+                        if (request.Method == HttpMethods.Get
+                            && ((configuracao.ArquivosEstaticos != null && configuracao.ArquivosEstaticos != "")
+                                || (site.ArquivosEstaticos != null && site.ArquivosEstaticos != "")))
                         {
-                            cookieContainer.SetCookies(urlAlvo, cookie);
-                        }
+                            string pathArquivoEstatico = Site.ProcessarPath($"{configuracao.ArquivosEstaticos?.Trim(['/', '\\'])}/" +
+                                $"{site.ArquivosEstaticos?.Trim(['/', '\\'])}{pathUrlAtual}".ProcessarStringSubstituicao(site));
 
-                        HttpClientHandler clientHandler = new() { CookieContainer = cookieContainer, AllowAutoRedirect = false };
-
-                        site.InicializarExecutavel();
-
-                        foreach (string header in headersIpFw)
-                        {
-                            if (!string.IsNullOrEmpty(request.Headers[header]))
+                            if (Path.Exists(pathArquivoEstatico))
                             {
-                                site.IpRemotoFw = request.Headers[header]!;
+                                var provedor = new FileExtensionContentTypeProvider();
+                                using var conteudoResposta = File.OpenRead(pathArquivoEstatico);
 
-                                break;
-                            }
-                        }
-
-                        if (site.IgnorarCertificadoAlvo)
-                        {
-                            clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
-                            clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;
-                        }
-
-                        site.UrlAlvo = $"{site.UrlAlvo}{pathUrlAtual}";
-
-                        HttpClient httpClient = new(clientHandler);
-                        Dictionary<string, StringValues> headersReq = request.Headers
-                                .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-                            .ToDictionary();
-                        using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), site.UrlAlvo);
-
-                        if (request.Method != HttpMethods.Get)
-                        {
-                            request.EnableBuffering();
-                            requestMessage.Content = new StreamContent(request.Body);
-
-                            foreach (var item in requestMessage.Content.Headers.GetType().GetProperties())
-                            {
-                                propsHeaders = [.. propsHeaders.Append(item.Name)];
-                            };
-                        }
-
-                        headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
-
-                        foreach (var header in headersReq.Where(h => h.Value.Count != 0))
-                        {
-                            string[] valores = [];
-
-                            foreach (var valor in header.Value)
-                            {
-                                var valorTemp = valor;
-
-                                if (valorTemp != null)
+                                if (provedor.TryGetContentType(pathArquivoEstatico, out string? tipoConteudo))
                                 {
-                                    if (valorTemp.StartsWith("http") && Uri.IsWellFormedUriString(valorTemp, UriKind.Absolute))
-                                    {
-                                        if (PathUrlAtual != null)
-                                        {
-                                            Uri hSite = new(valorTemp);
-
-                                            if (hSite.AbsolutePath.StartsWith(PathUrlAtual))
-                                            {
-                                                valorTemp = valorTemp.Replace($"{hSite.Authority}{PathUrlAtual}", hSite.Authority);
-                                            }
-                                            else
-                                            {
-                                                valorTemp = valorTemp.Replace(hSite.Authority, $"{hSite.Authority}{PathUrlAtual}");
-                                            }
-                                        }
-                                    }
-                                    else
-                                    {
-                                        valorTemp = CookieMicroproxyRegex().Replace(valorTemp, "");
-                                    }
+                                    context.Response.ContentType = tipoConteudo;
                                 }
 
-                                valores = [.. valores.Append(valorTemp)];
-                            }
-
-                            requestMessage.Headers.TryAddWithoutValidation(header.Key, valores);
-
-                            if (requestMessage.Content != null && propsHeaders.Contains(header.Key.Replace("-", "")))
-                            {
-                                requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valores);
-                            }
-                        };
-
-                        string ipRemoto = site.IpRemotoFw ?? site.IpRemoto;
-
-                        if (ipRemoto != null && ipRemoto.Length > 0 && ipRemoto != site.IpLocal)
-                        {
-                            foreach (var header in headersIpFw.Where(h => !requestMessage.Headers.TryGetValues(h, out _)).Reverse())
-                            {
-                                requestMessage.Headers.TryAddWithoutValidation(header, ipRemoto);
+                                site.RespBody = await new StreamReader(conteudoResposta).ReadToEndAsync();
+                                await context.Response.WriteAsync(site.RespBody);
+                                await context.Response.CompleteAsync();
                             }
                         }
 
-                        site.ReqHeaders = JsonConvert.SerializeObject(requestMessage.Headers.NonValidated.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
-
-                        using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead);
-                        using HttpContent content = response.Content;
-                        Dictionary<string, string[]> headersResposta = response.Headers
-                                    .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
-                                .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-                            .ToDictionary();
-
-                        headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
-                        site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
-
-                        foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
+                        if (!context.Response.HasStarted)
                         {
-                            string[] valores = header.Value;
+                            string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
 
-                            if (!context.Response.Headers.TryAdd(header.Key, valores))
+                            site.IpLocal = (context.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
+                            site.IpRemoto = (context.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
+
+                            string[] ipsRemotosSemFw = [site.IpLocal, IPAddress.Loopback.ToString(), IPAddress.IPv6Loopback.ToString()];
+                            string[] propsHeaders = [];
+                            CookieContainer cookieContainer = new();
+
+                            if (cookiesSites.TryGetValue(urlAlvo, out var cookie))
                             {
-                                context.Response.Headers.Append(header.Key, valores);
+                                cookieContainer.SetCookies(urlAlvo, cookie);
                             }
-                        };
 
-                        context.Response.StatusCode = (int)response.StatusCode;
+                            HttpClientHandler clientHandler = new() { CookieContainer = cookieContainer, AllowAutoRedirect = false };
 
-                        if (!cookiesSites.TryAdd(urlAlvo, cookieContainer.GetCookieHeader(urlAlvo)))
-                        {
-                            cookiesSites[urlAlvo] = cookieContainer.GetCookieHeader(urlAlvo);
-                        }
+                            foreach (string header in headersIpFw)
+                            {
+                                if (!string.IsNullOrEmpty(request.Headers[header]))
+                                {
+                                    site.IpRemotoFw = request.Headers[header]!;
 
-                        CookiesSites = cookiesSites;
+                                    break;
+                                }
+                            }
 
-                        if (request.Method != HttpMethods.Get)
-                        {
-                            request.Body.Seek(0, SeekOrigin.Begin);
-                            site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync();
-                        }
+                            if (site.IgnorarCertificadoAlvo)
+                            {
+                                clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
+                                clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;
+                            }
 
-                        if (context.Response.StatusCode < 300 || context.Response.StatusCode >= 400)
-                        {
-                            using MemoryStream memoryStream = new();
-                            using Stream streamContentResp = await content.ReadAsStreamAsync();
+                            site.UrlAlvo = $"{site.UrlAlvo}{pathUrlAtual}";
 
-                            memoryStream.Seek(0, SeekOrigin.Begin);
-                            await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body]);
-                            memoryStream.Seek(0, SeekOrigin.Begin);
-                            site.RespBody = await new StreamReader(memoryStream).ReadToEndAsync();
-                            await context.Response.CompleteAsync();
+                            HttpClient httpClient = new(clientHandler);
+                            Dictionary<string, StringValues> headersReq = request.Headers
+                                    .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
+                                .ToDictionary();
+                            using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), site.UrlAlvo);
+
+                            if (request.Method != HttpMethods.Get)
+                            {
+                                request.EnableBuffering();
+                                requestMessage.Content = new StreamContent(request.Body);
+
+                                foreach (var item in requestMessage.Content.Headers.GetType().GetProperties())
+                                {
+                                    propsHeaders = [.. propsHeaders.Append(item.Name)];
+                                };
+                            }
+
+                            headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
+
+                            foreach (var header in headersReq.Where(h => h.Value.Count != 0))
+                            {
+                                string[] valores = [];
+
+                                foreach (var valor in header.Value)
+                                {
+                                    var valorTemp = valor;
+
+                                    if (valorTemp != null)
+                                    {
+                                        if (valorTemp.StartsWith("http") && Uri.IsWellFormedUriString(valorTemp, UriKind.Absolute))
+                                        {
+                                            if (PathUrlAtual != null)
+                                            {
+                                                Uri hSite = new(valorTemp);
+
+                                                if (hSite.AbsolutePath.StartsWith(PathUrlAtual))
+                                                {
+                                                    valorTemp = valorTemp.Replace($"{hSite.Authority}{PathUrlAtual}", hSite.Authority);
+                                                }
+                                                else
+                                                {
+                                                    valorTemp = valorTemp.Replace(hSite.Authority, $"{hSite.Authority}{PathUrlAtual}");
+                                                }
+                                            }
+                                        }
+                                        else
+                                        {
+                                            valorTemp = CookieMicroproxyRegex().Replace(valorTemp, "");
+                                        }
+                                    }
+
+                                    valores = [.. valores.Append(valorTemp)];
+                                }
+
+                                requestMessage.Headers.TryAddWithoutValidation(header.Key, valores);
+
+                                if (requestMessage.Content != null && propsHeaders.Contains(header.Key.Replace("-", "")))
+                                {
+                                    requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valores);
+                                }
+                            };
+
+                            string ipRemoto = site.IpRemotoFw ?? site.IpRemoto;
+
+                            if (ipRemoto != null && ipRemoto.Length > 0 && ipRemoto != site.IpLocal)
+                            {
+                                foreach (var header in headersIpFw.Where(h => !requestMessage.Headers.TryGetValues(h, out _)).Reverse())
+                                {
+                                    requestMessage.Headers.TryAddWithoutValidation(header, ipRemoto);
+                                }
+                            }
+
+                            site.ReqHeaders = JsonConvert.SerializeObject(requestMessage.Headers.NonValidated.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
+
+                            using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead);
+                            using HttpContent content = response.Content;
+                            Dictionary<string, string[]> headersResposta = response.Headers
+                                        .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
+                                    .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
+                                .ToDictionary();
+
+                            headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
+                            site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
+
+                            foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
+                            {
+                                string[] valores = header.Value;
+
+                                if (!context.Response.Headers.TryAdd(header.Key, valores))
+                                {
+                                    context.Response.Headers.Append(header.Key, valores);
+                                }
+                            };
+
+                            context.Response.StatusCode = (int)response.StatusCode;
+
+                            if (!cookiesSites.TryAdd(urlAlvo, cookieContainer.GetCookieHeader(urlAlvo)))
+                            {
+                                cookiesSites[urlAlvo] = cookieContainer.GetCookieHeader(urlAlvo);
+                            }
+
+                            CookiesSites = cookiesSites;
+
+                            if (request.Method != HttpMethods.Get)
+                            {
+                                request.Body.Seek(0, SeekOrigin.Begin);
+                                site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync();
+                            }
+
+                            if (context.Response.StatusCode < 300 || context.Response.StatusCode >= 400)
+                            {
+                                using MemoryStream memoryStream = new();
+                                using Stream streamContentResp = await content.ReadAsStreamAsync();
+
+                                memoryStream.Seek(0, SeekOrigin.Begin);
+                                await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body]);
+                                memoryStream.Seek(0, SeekOrigin.Begin);
+                                site.RespBody = await new StreamReader(memoryStream).ReadToEndAsync();
+                                await context.Response.CompleteAsync();
+                            }
                         }
                     }
                 }
