@@ -200,8 +200,8 @@ namespace MicroProxy.Models
 
                                 await context.Response.SendFileAsync(arquivo);
                                 await context.Response.CompleteAsync();
-                                site.RespBody = await new StreamReader(conteudoResposta).ReadToEndAsync();
                                 conteudoResposta.Seek(0, SeekOrigin.Begin);
+                                site.RespBody = await new StreamReader(conteudoResposta).ReadToEndAsync();
                             }
                         }
 
