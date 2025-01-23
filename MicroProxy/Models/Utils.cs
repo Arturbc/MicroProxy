@@ -174,24 +174,57 @@ namespace MicroProxy.Models
                             pathUrlAtual = '/' + string.Join('/', pathUrlAtual.TrimStart('/').Split('/')[(melhorBind.Segments.Length - 1)..]);
                         }
 
-                        site.UrlAlvo = $"{site.UrlAlvo}{pathUrlAtual}";
+                        CookieContainer cookieContainer = new();
 
-                        if (request.Method == HttpMethods.Get
+                        if (cookiesSites.TryGetValue(urlAlvo, out var cookie))
+                        {
+                            cookieContainer.SetCookies(urlAlvo, cookie);
+                        }
+
+                        site.UrlAlvo = $"{site.UrlAlvo}{pathUrlAtual}";
+                        site.IpLocal = (context.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
+                        site.IpRemoto = (context.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
+
+                        string pathUrlAtualAjustado = new Uri(site.UrlAlvo).AbsolutePath;
+                        string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
+                        string[] ipsRemotosSemFw = [site.IpLocal, IPAddress.Loopback.ToString(), IPAddress.IPv6Loopback.ToString()];
+
+                        foreach (string header in headersIpFw)
+                        {
+                            if (!string.IsNullOrEmpty(request.Headers[header]))
+                            {
+                                site.IpRemotoFw = request.Headers[header]!;
+
+                                break;
+                            }
+                        }
+
+                        if (request.Method == HttpMethods.Get && Path.HasExtension(pathUrlAtualAjustado)
                             && ((configuracao.ArquivosEstaticos != null && configuracao.ArquivosEstaticos != "")
                                 || (site.ArquivosEstaticos != null && site.ArquivosEstaticos != "")))
                         {
-                            string pathUrlAtualAjustado = new Uri(site.UrlAlvo).AbsolutePath;
-                            string pathDiretorioArquivo = Site.ProcessarPath($"{configuracao.ArquivosEstaticos?.Trim(['/', '\\'])}/" +
-                                $"{site.ArquivosEstaticos?.Trim(['/', '\\'])}".ProcessarStringSubstituicao(site));
+                            string pathDiretorioArquivo = Site.ProcessarPath($"{configuracao.ArquivosEstaticos}" +
+                                $"{site.ArquivosEstaticos}".ProcessarStringSubstituicao(site));
                             string pathArquivoEstatico = pathDiretorioArquivo + pathUrlAtualAjustado;
-                            var arquivo = new PhysicalFileProvider(pathDiretorioArquivo).GetFileInfo(pathUrlAtualAjustado.Trim(['/', '\\']));
+                            var arquivo = new PhysicalFileProvider(pathDiretorioArquivo).GetFileInfo(pathUrlAtualAjustado.TrimStart(['/', '\\']));
 
                             if (arquivo.Exists)
                             {
                                 var provedor = new FileExtensionContentTypeProvider();
                                 using var conteudoResposta = arquivo.CreateReadStream();
+                                var headersResposta = site.ProcessarHeaders(context.Response.Headers.ToDictionary(), site.ResponseHeadersAdicionais);
 
-                                context.Response.ContentLength = arquivo.Length;
+                                foreach (var header in headersResposta.Where(h => h.Value.ToString().Length != 0))
+                                {
+                                    string[] valores = header.Value!;
+
+                                    if (!context.Response.Headers.TryAdd(header.Key, valores))
+                                    {
+                                        context.Response.Headers.Append(header.Key, valores);
+                                    }
+                                };
+
+                                context.Response.ContentLength = arquivo.Length; 
 
                                 if (provedor.TryGetContentType(pathArquivoEstatico, out string? tipoConteudo))
                                 {
@@ -207,31 +240,9 @@ namespace MicroProxy.Models
 
                         if (!context.Response.HasStarted)
                         {
-                            string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
-
-                            site.IpLocal = (context.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
-                            site.IpRemoto = (context.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
-
-                            string[] ipsRemotosSemFw = [site.IpLocal, IPAddress.Loopback.ToString(), IPAddress.IPv6Loopback.ToString()];
                             string[] propsHeaders = [];
-                            CookieContainer cookieContainer = new();
-
-                            if (cookiesSites.TryGetValue(urlAlvo, out var cookie))
-                            {
-                                cookieContainer.SetCookies(urlAlvo, cookie);
-                            }
 
                             HttpClientHandler clientHandler = new() { CookieContainer = cookieContainer, AllowAutoRedirect = false };
-
-                            foreach (string header in headersIpFw)
-                            {
-                                if (!string.IsNullOrEmpty(request.Headers[header]))
-                                {
-                                    site.IpRemotoFw = request.Headers[header]!;
-
-                                    break;
-                                }
-                            }
 
                             if (site.IgnorarCertificadoAlvo)
                             {
