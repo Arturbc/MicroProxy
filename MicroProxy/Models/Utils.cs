@@ -36,8 +36,13 @@ namespace MicroProxy.Models
         }
         private static string? PathUrlAtual
         {
-            get => Sessao?.GetObjectFromJson<string>(PATH_SITE);
-            set { if (value != null) Sessao?.SetObjectAsJson(PATH_SITE, value); else Sessao?.Remove(PATH_SITE); }
+            get => Sessao?.GetObjectFromJson<string>(PATH_SITE_ATUAL);
+            set { if (value != null) Sessao?.SetObjectAsJson(PATH_SITE_ATUAL, value); else Sessao?.Remove(PATH_SITE_ATUAL); }
+        }
+        private static string? PathUrlAlvo
+        {
+            get => Sessao?.GetObjectFromJson<string>(PATH_SITE_ALVO);
+            set { if (value != null) Sessao?.SetObjectAsJson(PATH_SITE_ALVO, value); else Sessao?.Remove(PATH_SITE_ALVO); }
         }
 
         public static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
@@ -158,18 +163,74 @@ namespace MicroProxy.Models
 
                 if (site != null && context.Response.StatusCode == StatusCodes.Status200OK)
                 {
+                    string? pathUrlAtualTemp = pathUrlAtual;
+
                     urlAlvo = new(site.UrlAlvo);
+
+                    if (urlAlvo.Segments.Length > 1)
+                    {
+                        string pathAlvoTemp = urlAlvo.AbsolutePath.TrimEnd('/');
+
+                        if (!Path.HasExtension(pathUrlAtualTemp))
+                        {
+                            PathUrlAlvo = pathAlvoTemp;
+                        }
+
+                        if (pathUrlAtualTemp.StartsWith(pathAlvoTemp))
+                        {
+                            pathUrlAtualTemp = '/' + string.Join('/', pathUrlAtualTemp.TrimStart('/').Split('/')[(urlAlvo.Segments.Length - 1)..]);
+                        }
+                    }
+                    else
+                    {
+                        PathUrlAlvo = null;
+                    }
 
                     if (PathUrlAtual != null && !pathUrlAtual.StartsWith(PathUrlAtual))
                     {
-                        context.Response.RedirectPreserveMethod(PathUrlAtual + pathUrlAtual, true);
+                        pathUrlAtualTemp = $"{PathUrlAtual}{pathUrlAtualTemp}";
+                    }
+
+                    if (pathUrlAtualTemp != pathUrlAtual)
+                    {
+                        context.Response.RedirectPreserveMethod(pathUrlAtualTemp, true);
+                    }
+                    else
+                    {
+                        site.UrlAlvo = $"{urlAlvo.Scheme}://{urlAlvo.Authority}";
+
+                        if (PathUrlAlvo != null)
+                        {
+                            pathUrlAtualTemp = PathUrlAlvo;
+
+                            if (!(pathUrlAtual + '/').StartsWith(pathUrlAtualTemp + '/'))
+                            {
+                                string[] pathsUrlAlvo = pathUrlAtualTemp.TrimStart('/').Split('/');
+
+                                for (int i = pathsUrlAlvo.Length - 1; i > 0 && pathUrlAtualTemp != null; i--)
+                                {
+                                    string pathTeste = '/' + string.Join('/', pathsUrlAlvo[0..i]) + '/';
+
+                                    if ((pathUrlAtual + '/').StartsWith(pathTeste))
+                                    {
+                                        pathUrlAtualTemp = null;
+                                    }
+                                }
+                            }
+
+                            if (pathUrlAtualTemp != null)
+                            {
+                                pathUrlAtual = pathUrlAtualTemp + pathUrlAtual;
+                            }
+                        }
                     }
 
                     if (context.Response.StatusCode == StatusCodes.Status200OK)
                     {
                         site.InicializarExecutavel();
 
-                        if (PathUrlAtual != null && melhorBind != null && melhorBind.Segments.Length > 1)
+                        if (PathUrlAtual != null && melhorBind != null && melhorBind.Segments.Length > 1
+                            && pathUrlAtual.StartsWith(melhorBind.AbsolutePath.TrimEnd('/')))
                         {
                             pathUrlAtual = '/' + string.Join('/', pathUrlAtual.TrimStart('/').Split('/')[(melhorBind.Segments.Length - 1)..]);
                         }
@@ -224,7 +285,7 @@ namespace MicroProxy.Models
                                     }
                                 };
 
-                                context.Response.ContentLength = arquivo.Length; 
+                                context.Response.ContentLength = arquivo.Length;
 
                                 if (provedor.TryGetContentType(pathArquivoEstatico, out string? tipoConteudo))
                                 {
@@ -281,17 +342,23 @@ namespace MicroProxy.Models
                                     {
                                         if (valorTemp.StartsWith("http") && Uri.IsWellFormedUriString(valorTemp, UriKind.Absolute))
                                         {
-                                            if (PathUrlAtual != null)
-                                            {
-                                                Uri hSite = new(valorTemp);
+                                            string? pathUrlHeader = PathUrlAtual ?? PathUrlAlvo;
+                                            Uri hSite = new(valorTemp);
 
-                                                if (hSite.AbsolutePath.StartsWith(PathUrlAtual))
+                                            if (PathUrlAtual != null && PathUrlAlvo != null && PathUrlAtual.StartsWith(PathUrlAlvo))
+                                            {
+                                                pathUrlHeader = null;
+                                            }
+
+                                            if (pathUrlHeader != null && hSite.AbsolutePath.StartsWith(pathUrlHeader))
+                                            {
+                                                if (hSite.AbsolutePath.StartsWith(pathUrlHeader))
                                                 {
-                                                    valorTemp = valorTemp.Replace($"{hSite.Authority}{PathUrlAtual}", hSite.Authority);
+                                                    valorTemp = valorTemp.Replace($"{hSite.Authority}{pathUrlHeader}", hSite.Authority);
                                                 }
                                                 else
                                                 {
-                                                    valorTemp = valorTemp.Replace(hSite.Authority, $"{hSite.Authority}{PathUrlAtual}");
+                                                    valorTemp = valorTemp.Replace(hSite.Authority, $"{hSite.Authority}{pathUrlHeader}");
                                                 }
                                             }
                                         }
@@ -336,7 +403,40 @@ namespace MicroProxy.Models
 
                             foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
                             {
-                                string[] valores = header.Value;
+                                string[] valores = [];
+
+                                foreach (var valor in header.Value)
+                                {
+                                    var valorTemp = valor;
+
+                                    if (valorTemp != null)
+                                    {
+                                        if (valorTemp.StartsWith("http") && Uri.IsWellFormedUriString(valorTemp, UriKind.Absolute))
+                                        {
+                                            string? pathUrlHeader = PathUrlAtual ?? PathUrlAlvo;
+                                            Uri hSite = new(valorTemp);
+
+                                            if (PathUrlAtual != null && PathUrlAlvo != null && PathUrlAtual.StartsWith(PathUrlAlvo))
+                                            {
+                                                pathUrlHeader = null;
+                                            }
+
+                                            if (pathUrlHeader != null && hSite.AbsolutePath.StartsWith(pathUrlHeader))
+                                            {
+                                                if (hSite.AbsolutePath.StartsWith(pathUrlHeader))
+                                                {
+                                                    valorTemp = valorTemp.Replace($"{hSite.Authority}{pathUrlHeader}", hSite.Authority);
+                                                }
+                                                else
+                                                {
+                                                    valorTemp = valorTemp.Replace(hSite.Authority, $"{hSite.Authority}{pathUrlHeader}");
+                                                }
+                                            }
+                                        }
+
+                                        valores = [.. valores.Append(valorTemp)];
+                                    }
+                                }
 
                                 if (!context.Response.Headers.TryAdd(header.Key, valores))
                                 {
@@ -361,6 +461,7 @@ namespace MicroProxy.Models
 
                             if (context.Response.StatusCode < 300 || context.Response.StatusCode >= 400)
                             {
+                                PathUrlAlvo = null;
                                 using MemoryStream memoryStream = new();
                                 using Stream streamContentResp = await content.ReadAsStreamAsync();
 
