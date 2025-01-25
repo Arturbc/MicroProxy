@@ -34,15 +34,15 @@ namespace MicroProxy.Models
             }
             set => Sessao?.SetObjectAsJson(COOKIE_SITE, value);
         }
-        private static string? PathUrlAtual
+        public static string? PathUrlAtual
         {
             get => Sessao?.GetObjectFromJson<string>(PATH_SITE_ATUAL);
-            set { if (value != null) Sessao?.SetObjectAsJson(PATH_SITE_ATUAL, value); else Sessao?.Remove(PATH_SITE_ATUAL); }
+            private set { if (value != null) Sessao?.SetObjectAsJson(PATH_SITE_ATUAL, value); else Sessao?.Remove(PATH_SITE_ATUAL); }
         }
-        private static string? PathUrlRedirectOrigem
+        public static string? PathUrlOrigemRedirect
         {
-            get => Sessao?.GetObjectFromJson<string>(PATH_SITE_REDIRECT_ORIGEM);
-            set { if (value != null) Sessao?.SetObjectAsJson(PATH_SITE_REDIRECT_ORIGEM, value); else Sessao?.Remove(PATH_SITE_REDIRECT_ORIGEM); }
+            get => Sessao?.GetObjectFromJson<string>(PATH_SITE_ORIGEM_REDIRECT);
+            private set { if (value != null) Sessao?.SetObjectAsJson(PATH_SITE_ORIGEM_REDIRECT, value); else Sessao?.Remove(PATH_SITE_ORIGEM_REDIRECT); }
         }
 
         public static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
@@ -153,7 +153,7 @@ namespace MicroProxy.Models
                         if (urlAtual.Segments.Length == 1)
                         {
                             PathUrlAtual = null;
-                            PathUrlRedirectOrigem = null;
+                            PathUrlOrigemRedirect = null;
                             context.Response.RedirectPreserveMethod("/", true);
                         }
                     }
@@ -174,6 +174,12 @@ namespace MicroProxy.Models
                     string? pathUrlAlvo = null;
 
                     urlAlvo = new(site.UrlAlvo);
+                    CookieContainer cookieContainer = new();
+
+                    if (cookiesSites.TryGetValue(urlAlvo, out var cookie))
+                    {
+                        cookieContainer.SetCookies(urlAlvo, cookie);
+                    }
 
                     if (!Path.HasExtension(pathUrlAtual))
                     {
@@ -195,7 +201,7 @@ namespace MicroProxy.Models
 
                     if (pathUrlAtualTemp != pathUrlAtual)
                     {
-                        PathUrlRedirectOrigem = pathUrlAtual;
+                        PathUrlOrigemRedirect = pathUrlAtual;
                         context.Response.RedirectPreserveMethod(pathUrlAtualTemp, true);
                     }
                     else
@@ -204,27 +210,26 @@ namespace MicroProxy.Models
 
                         if (pathUrlAlvo != null)
                         {
-                            pathUrlAtualTemp = pathUrlAlvo;
-
-                            if (!(pathUrlAtual + '/').StartsWith(pathUrlAtualTemp + '/', StringComparison.InvariantCultureIgnoreCase))
+                            if (!(pathUrlAlvo + '/').StartsWith(pathUrlAtualTemp + '/', StringComparison.InvariantCultureIgnoreCase))
                             {
-                                string[] pathsUrlAlvo = pathUrlAtualTemp.TrimStart('/').Split('/');
+                                string[] pathsUrlAlvo = pathUrlAlvo.TrimStart('/').Split('/');
 
-                                for (int i = pathsUrlAlvo.Length - 1; i > 0 && pathUrlAtualTemp != null; i--)
+                                for (int i = pathsUrlAlvo.Length - 1; i > 0 && pathUrlAlvo != null; i--)
                                 {
                                     string pathTeste = '/' + string.Join('/', pathsUrlAlvo[0..i]) + '/';
 
                                     if ((pathUrlAtual + '/').StartsWith(pathTeste))
                                     {
-                                        pathUrlAtualTemp = null;
+                                        pathUrlAlvo = null;
                                     }
                                 }
                             }
 
-                            if (pathUrlAtualTemp != null && pathUrlAnterior != null
-                                && (PathUrlRedirectOrigem == null || (pathUrlAtualTemp + '/').StartsWith(PathUrlRedirectOrigem + '/', StringComparison.InvariantCultureIgnoreCase)))
+                            if (pathUrlAlvo != null && pathUrlAnterior != null
+                                && (pathUrlAtual + '/').StartsWith(pathUrlAlvo + '/', StringComparison.InvariantCultureIgnoreCase)
+                                && (PathUrlOrigemRedirect == null || (pathUrlAtual + '/').StartsWith(PathUrlOrigemRedirect + '/', StringComparison.InvariantCultureIgnoreCase)))
                             {
-                                pathUrlAtual = pathUrlAtualTemp + pathUrlAtual;
+                                pathUrlAtual = pathUrlAlvo + pathUrlAtual;
                             }
                         }
                     }
@@ -299,13 +304,6 @@ namespace MicroProxy.Models
                         if (!context.Response.HasStarted)
                         {
                             string[] propsHeaders = [];
-                            CookieContainer cookieContainer = new();
-
-                            if (cookiesSites.TryGetValue(urlAlvo, out var cookie))
-                            {
-                                cookieContainer.SetCookies(urlAlvo, cookie);
-                            }
-
                             HttpClientHandler clientHandler = new() { CookieContainer = cookieContainer, AllowAutoRedirect = false };
 
                             if (site.IgnorarCertificadoAlvo)
@@ -343,12 +341,7 @@ namespace MicroProxy.Models
 
                                     if (valorTemp != null)
                                     {
-                                        valorTemp = urlAtual.ProcessarPathsHeader(valorTemp, urlAlvo);
-
-                                        if (valorTemp == valor)
-                                        {
-                                            valorTemp = CookieMicroproxyRegex().Replace(valorTemp, "");
-                                        }
+                                        valorTemp = CookieMicroproxyRegex().Replace(valorTemp, "");
                                     }
 
                                     valores = [.. valores.Append(valorTemp)];
@@ -385,26 +378,18 @@ namespace MicroProxy.Models
                             headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
                             site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
 
-                            if (PathUrlRedirectOrigem != null && PathUrlAtual != null && context.Response.StatusCode >= StatusCodes.Status300MultipleChoices && context.Response.StatusCode < StatusCodes.Status400BadRequest)
+                            if (!cookiesSites.TryAdd(urlAlvo, cookieContainer.GetCookieHeader(urlAlvo)))
                             {
-                                PathUrlRedirectOrigem = PathUrlAtual;
+                                cookiesSites[urlAlvo] = cookieContainer.GetCookieHeader(urlAlvo);
                             }
+
+                            CookiesSites = cookiesSites;
 
                             foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
                             {
-                                string[] valores = [];
-
-                                foreach (var valor in header.Value)
+                                if (!context.Response.Headers.TryAdd(header.Key, header.Value))
                                 {
-                                    if (valor != null)
-                                    {
-                                        valores = [.. valores.Append(urlAtual.ProcessarPathsHeader(valor, urlAlvo))];
-                                    }
-                                }
-
-                                if (!context.Response.Headers.TryAdd(header.Key, valores))
-                                {
-                                    context.Response.Headers.Append(header.Key, valores);
+                                    context.Response.Headers.Append(header.Key, header.Value);
                                 }
                             };
 
@@ -413,13 +398,6 @@ namespace MicroProxy.Models
                                 request.Body.Seek(0, SeekOrigin.Begin);
                                 site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync();
                             }
-
-                            if (!cookiesSites.TryAdd(urlAlvo, cookieContainer.GetCookieHeader(urlAlvo)))
-                            {
-                                cookiesSites[urlAlvo] = cookieContainer.GetCookieHeader(urlAlvo);
-                            }
-
-                            CookiesSites = cookiesSites;
 
                             if (context.Response.StatusCode < StatusCodes.Status300MultipleChoices || context.Response.StatusCode >= StatusCodes.Status400BadRequest)
                             {
@@ -432,12 +410,12 @@ namespace MicroProxy.Models
                                 memoryStream.Seek(0, SeekOrigin.Begin);
                                 site.RespBody = await new StreamReader(memoryStream).ReadToEndAsync();
                             }
-                            else if (context.Response.StatusCode < StatusCodes.Status400BadRequest && PathUrlRedirectOrigem == null)
+                            else if (context.Response.StatusCode < StatusCodes.Status400BadRequest && PathUrlOrigemRedirect == null)
                             {
                                 PathUrlAtual = null;
                             }
 
-                            PathUrlRedirectOrigem = null;
+                            PathUrlOrigemRedirect = null;
                         }
                     }
                 }
@@ -485,52 +463,6 @@ namespace MicroProxy.Models
             {
                 throw site.Exception;
             }
-        }
-
-        private static string ProcessarPathsHeader(this Uri urlAtual, string valor, Uri urlAlvo)
-        {
-            if ((valor.StartsWith("http") || valor.StartsWith('/'))
-                && Uri.TryCreate((valor.StartsWith('/') ? $"{urlAlvo.Scheme}://{urlAlvo.Authority}" : "") + valor
-                    , UriKind.Absolute, out Uri? hSite) && !Path.HasExtension(hSite.AbsolutePath)
-                && (PathUrlRedirectOrigem == null || !(hSite.AbsolutePath.TrimEnd('/') + '/').StartsWith(PathUrlRedirectOrigem + '/', StringComparison.InvariantCultureIgnoreCase)))
-            {
-                string hSitePath = hSite.AbsolutePath.TrimEnd('/');
-                string novoSitePath = urlAtual.AbsoluteUri;
-
-                if (hSitePath.EndsWith(novoSitePath + '/') && !hSitePath.StartsWith(novoSitePath + '/', StringComparison.InvariantCultureIgnoreCase))
-                {
-                    if (!valor.StartsWith('/'))
-                    {
-                        hSitePath = hSite.Authority + hSitePath;
-                        novoSitePath = hSite.Authority + novoSitePath;
-                    }
-
-                    valor = valor.Replace($"{hSitePath}", $"{novoSitePath}", StringComparison.InvariantCultureIgnoreCase);
-                }
-                else if (PathUrlAtual != null && hSitePath != "")
-                {
-                    novoSitePath = hSitePath;
-
-                    if (!(novoSitePath + '/').StartsWith(PathUrlAtual + '/', StringComparison.InvariantCultureIgnoreCase))
-                    {
-                        novoSitePath = PathUrlAtual + novoSitePath;
-                    }
-                    else if (urlAlvo != null)
-                    {
-                        novoSitePath = ('/' + string.Join('/', hSite.Segments[(PathUrlAtual.TrimEnd('/').Count(c => c == '/') + 1)..])).TrimEnd('/');
-                    }
-
-                    if (!valor.StartsWith('/'))
-                    {
-                        hSitePath = hSite.Authority + hSitePath;
-                        novoSitePath = hSite.Authority + novoSitePath;
-                    }
-
-                    valor = valor.Replace($"{hSitePath}", $"{novoSitePath}", StringComparison.InvariantCultureIgnoreCase);
-                }
-            }
-
-            return valor;
         }
 
         private static void RedirectPreserveMethod(this HttpResponse response, string novoDestino, bool permanent = false, string? method = null)

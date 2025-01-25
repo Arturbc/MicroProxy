@@ -39,11 +39,15 @@ namespace MicroProxy.Models
         public string SchemaAtual => new Uri(UrlAtual).Scheme;
         public string HostPortAtual => new Uri(UrlAtual).Port.ToString();
         public string PathAndQueryAtual => new Uri(UrlAtual).PathAndQuery.TrimEnd('/');
+        public string AbsolutePathAtual => new Uri(UrlAtual).AbsolutePath.TrimEnd('/');
+        public string? PathAtualAdicional => Utils.PathUrlAtual;
+        public string? PathAtualOrigemRedirect => Utils.PathUrlOrigemRedirect;
         public string AuthorityAlvo => new Uri(_urlAlvo).Authority;
         public string HostAlvo => new Uri(_urlAlvo).Host;
         public string SchemaAlvo => new Uri(_urlAlvo).Scheme;
         public string HostPortAlvo => new Uri(_urlAlvo).Port.ToString();
         public string PathAndQueryAlvo => new Uri(_urlAlvo).PathAndQuery.TrimEnd('/');
+        public string AbsolutePathAlvo => new Uri(_urlAlvo).AbsolutePath.TrimEnd('/');
         public string ReqMethodAtual => HttpContext.Request.Method;
         public string ReqHeadersPreAjuste => JsonConvert.SerializeObject(HttpContext.Request.Headers.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
         public int RespStatusCode => HttpContext.Response.StatusCode;
@@ -227,8 +231,9 @@ namespace MicroProxy.Models
                 foreach (var header in headersOriginais.Where(h => headersAdicionais.Any(ha => FlagKeySubstRegex().Replace(ha.Key, "") == h.Key || keysCoringa.Contains(ha.Key))))
                 {
                     string[] valores = [];
-                    var listaHeaders = headersAdicionais.Where(h => h.Key == header.Key || h.Key == "").ToDictionary();
-                    var listaHeadersSubstitutos = headersAdicionais.Where(h => (FlagKeySubstRegex().Replace(h.Key, "") == header.Key && h.Key != header.Key) || h.Key == "*")
+                    var listaHeaders = headersAdicionais.Where(h => h.Key.Equals(header.Key, StringComparison.InvariantCultureIgnoreCase) || h.Key == "").ToDictionary();
+                    var listaHeadersSubstitutos = headersAdicionais.Where(h => (FlagKeySubstRegex().Replace(h.Key, "").Equals(header.Key, StringComparison.InvariantCultureIgnoreCase)
+                            && !h.Key.Equals(header.Key, StringComparison.InvariantCultureIgnoreCase)) || h.Key == "*")
                         .ToDictionary(h => FlagKeySubstRegex().Replace(h.Key, ""), h => h.Value.Select(v => v.ProcessarStringSubstituicao(this)).ToArray());
 
                     if (listaHeaders.Where(l => l.Key != "").Count() < listaHeadersSubstitutos.Where(l => l.Key != "").Count())

@@ -5,8 +5,7 @@
         public const string NOME_COOKIE = "Microproxy";
         public const string COOKIE_SITE = "cookieSite";
         public const string PATH_SITE_ATUAL = "pathSiteAtual";
-        public const string PATH_SITE_ALVO = "pathSiteAlvo";
-        public const string PATH_SITE_REDIRECT_ORIGEM = "pathSiteRedirectOrigem";
+        public const string PATH_SITE_ORIGEM_REDIRECT = "pathSiteOrigemRedirect";
         protected IConfigurationRoot ConfigurationRoot { get; set; } = null!;
         public Dictionary<string, Log>? Logs { get; protected set; }
         public uint MinutosValidadeCookie { get; protected set; }
