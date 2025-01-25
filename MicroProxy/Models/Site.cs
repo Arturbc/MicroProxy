@@ -41,7 +41,7 @@ namespace MicroProxy.Models
         public string PathAndQueryAtual => new Uri(UrlAtual).PathAndQuery.TrimEnd('/');
         public string AbsolutePathAtual => new Uri(UrlAtual).AbsolutePath.TrimEnd('/');
         public string PathAtualAdicional => Utils.PathUrlAtual ?? "";
-        public string PathAtualOrigemRedirect => Utils.PathUrlOrigemRedirect ?? "";
+        public string AbsolutePathAtualOrigemRedirect => Utils.AbsolutePathUrlOrigemRedirect ?? "";
         public string AuthorityAlvo => new Uri(_urlAlvo).Authority;
         public string HostAlvo => new Uri(_urlAlvo).Host;
         public string SchemaAlvo => new Uri(_urlAlvo).Scheme;
