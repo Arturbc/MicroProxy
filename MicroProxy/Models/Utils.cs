@@ -289,7 +289,7 @@ namespace MicroProxy.Models
                         {
                             string pathDiretorioArquivo = Site.ProcessarPath(configuracao.ArquivosEstaticos.ProcessarStringSubstituicao(site));
 
-                            site.RespBody = await context.Response.SendFileAsync(site, pathDiretorioArquivo, Path.GetFileName(pathAbsolutoUrlAtual));
+                            site.RespBody = await context.Response.SendFileAsync(site, pathDiretorioArquivo, pathAbsolutoUrlAtual.TrimStart('/'));
                         }
 
                         if (!context.Response.HasStarted)
@@ -432,24 +432,28 @@ namespace MicroProxy.Models
             {
                 site ??= new();
                 site.Exception = new(null, ex);
-                context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-
-                if (configuracao.TratamentoErroInterno != null && configuracao.TratamentoErroInterno != "")
-                {
-                    string pathArquivo = Site.ProcessarPath(configuracao.TratamentoErroInterno.ProcessarStringSubstituicao(site));
-                    string[] partesPath = CharSeparadorDiretorioUrlRegex().Split(pathArquivo);
-
-                    site.RespBody = await context.Response
-                        .SendFileAsync(site, string.Join(Path.DirectorySeparatorChar, partesPath[0..(partesPath.Length - 1)]),
-                            Path.GetFileName(configuracao.TratamentoErroInterno));
-                }
 
                 if (!context.Response.HasStarted)
                 {
-                    context.Response.Headers.ContentType = MediaTypeNames.Text.Html;
-                    await context.Response.WriteAsync($"<!DOCTYPE html><html><head><meta charset=\"utf-8\" /><title>Erro {context.Response.StatusCode}</title></head>" +
-                        $"<body><h1>Erro {context.Response.StatusCode}</h1>{site.ExceptionMensagem?.ReplaceLineEndings("<br>")}</body></html>");
-                    await context.Response.CompleteAsync();
+                    context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+
+                    if (configuracao.TratamentoErroInterno != null && configuracao.TratamentoErroInterno != "")
+                    {
+                        string pathArquivo = Site.ProcessarPath(configuracao.TratamentoErroInterno.ProcessarStringSubstituicao(site));
+                        string[] partesPath = CharSeparadorDiretorioUrlRegex().Split(pathArquivo);
+
+                        site.RespBody = await context.Response
+                            .SendFileAsync(site, string.Join(Path.DirectorySeparatorChar, partesPath[0..(partesPath.Length - 1)]),
+                                Path.GetFileName(configuracao.TratamentoErroInterno));
+                    }
+
+                    if (!context.Response.HasStarted)
+                    {
+                        context.Response.Headers.ContentType = MediaTypeNames.Text.Html;
+                        await context.Response.WriteAsync($"<!DOCTYPE html><html><head><meta charset=\"utf-8\" /><title>Erro {context.Response.StatusCode}</title></head>" +
+                            $"<body><h1>Erro {context.Response.StatusCode}</h1>{site.ExceptionMensagem?.ReplaceLineEndings("<br>")}</body></html>");
+                        await context.Response.CompleteAsync();
+                    }
                 }
             }
 
@@ -537,20 +541,16 @@ namespace MicroProxy.Models
                         httpResponse.ContentType = tipoConteudo;
                     }
 
+                    await httpResponse.SendFileAsync(arquivo);
+                    await httpResponse.CompleteAsync();
+
                     if (tipoConteudo != null
                         && (tipoConteudo.StartsWith("text", StringComparison.InvariantCultureIgnoreCase)
                             || tipoConteudo.StartsWith("application", StringComparison.InvariantCultureIgnoreCase)))
                     {
                         conteudoResposta.Seek(0, SeekOrigin.Begin);
                         site.RespBody = (await new StreamReader(conteudoResposta).ReadToEndAsync()).ProcessarStringSubstituicao(site);
-                        await httpResponse.WriteAsync(site.RespBody);
                     }
-                    else
-                    {
-                        await httpResponse.SendFileAsync(arquivo);
-                    }
-
-                    await httpResponse.CompleteAsync();
 
                     return site.RespBody;
                 }
