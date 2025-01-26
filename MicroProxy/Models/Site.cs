@@ -273,36 +273,30 @@ namespace MicroProxy.Models
 
                                         if (valido)
                                         {
-                                            uint j = 0;
-                                            string valorSubstitudo = valoresHeaderSubs
-                                                .OrderByDescending(v =>
-                                                {
-                                                    if (valoresHeaderSubs.Length == headerAdicional.Value.Length)
-                                                    {
-                                                        return valoresHeaderSubs.Length - Math.Abs(i - j++);
-                                                    }
-
-                                                    Match[] separadores = [.. CharsSeparadoresRegex().Matches(valorTemp).ToArray()];
-                                                    char charSeparadorPrincipal = separadores.OrderByDescending(s => separadores.Count(sc => sc.Value == s.Value))
-                                                        .FirstOrDefault()?.Value.First() ?? '\0';
-
-                                                    if (charSeparadorPrincipal == '\0')
-                                                    {
-                                                        return 0;
-                                                    }
-
-                                                    return Math.Abs(v.Split(charSeparadorPrincipal).Length - valorTemp.Split(charSeparadorPrincipal).Length);
-                                                }).First();
-
-                                            valorTemp = substRegex.Replace(valorTemp, valorSubstitudo);
-
-                                            if (valoresHeaderSubs.Length != headerAdicional.Value.Length)
+                                            if (valoresHeaderSubs.Length == headerAdicional.Value.Length)
                                             {
+                                                valorTemp = substRegex.Replace(valorTemp, valoresHeaderSubs[i++]);
+                                            }
+                                            else
+                                            {
+                                                string valorSubstitudo = valoresHeaderSubs.OrderByDescending(v =>
+                                                    {
+                                                        Match[] separadores = [.. CharsSeparadoresRegex().Matches(valorTemp).ToArray()];
+                                                        char charSeparadorPrincipal = separadores.OrderByDescending(s => separadores.Count(sc => sc.Value == s.Value))
+                                                            .FirstOrDefault()?.Value.First() ?? '\0';
+
+                                                        if (charSeparadorPrincipal == '\0')
+                                                        {
+                                                            return 0;
+                                                        }
+
+                                                        return Math.Abs(v.Split(charSeparadorPrincipal).Length - valorTemp.Split(charSeparadorPrincipal).Length);
+                                                    }).ThenBy(v => Math.Abs(v.Length - valorHeader.Length)).ThenBy(v => v.Length).First();
+
+                                                valorTemp = substRegex.Replace(valorTemp, valorSubstitudo);
                                                 break;
                                             }
                                         }
-
-                                        i++;
                                     }
                                 }
                                 else
