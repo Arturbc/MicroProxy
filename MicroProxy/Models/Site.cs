@@ -40,6 +40,7 @@ namespace MicroProxy.Models
         public string HostPortAtual => new Uri(UrlAtual).Port.ToString();
         public string PathAndQueryAtual => new Uri(UrlAtual).PathAndQuery.TrimEnd('/');
         public string AbsolutePathAtual => new Uri(UrlAtual).AbsolutePath.TrimEnd('/');
+        public string PathAtualSubstituto { get; private set; } = "";
         public string PathAtualAdicional => Utils.PathUrlAtual ?? "";
         public string AbsolutePathAtualOrigemRedirect => Utils.AbsolutePathUrlOrigemRedirect ?? "";
         public string AuthorityAlvo => new Uri(_urlAlvo).Authority;
@@ -82,10 +83,16 @@ namespace MicroProxy.Models
         public string HorasCompletas => DataHoras.ToString("T");
 
         public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos ??= ([.. value?.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))]); }
-        public string UrlAlvo { get => _urlAlvo; set => _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/'); }
+        public string UrlAlvo
+        {
+            get => _urlAlvo; set
+            {
+                _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/');
+                if (PathAtualSubstituto == "" && _urlAlvo.StartsWith("http", StringComparison.InvariantCultureIgnoreCase)) PathAtualSubstituto = new Uri(_urlAlvo).AbsolutePath.TrimEnd('/');
+            }
+        }
         public bool IgnorarCertificadoAlvo { get => _ignorarCertificadoAlvo ?? false; set => _ignorarCertificadoAlvo ??= value; }
         public string[] Methods { get => _methods!; set => _methods ??= value ?? ["*"]; }
-        public string? ArquivosEstaticos { get => _arquivosEstaticos; set => _arquivosEstaticos ??= value; }
         public Dictionary<string, string[]>? RequestHeadersAdicionais { get => _requestHeadersAdicionais; set => _requestHeadersAdicionais ??= value; }
         public Dictionary<string, string[]>? ResponseHeadersAdicionais { get => _responseHeadersAdicionais; set => _responseHeadersAdicionais ??= value; }
         public int BufferResp { get => _bufferResp; set => _bufferResp = value; }
@@ -258,6 +265,8 @@ namespace MicroProxy.Models
                                 {
                                     substituirValores = true;
 
+                                    uint i = 0;
+
                                     foreach (var valoresHeader in headerAdicional.Value)
                                     {
                                         Regex substRegex = new(valoresHeader.ProcessarStringSubstituicao(this));
@@ -265,12 +274,17 @@ namespace MicroProxy.Models
 
                                         if (valido)
                                         {
+                                            uint j = 0;
+                                            uint k = 0;
                                             string valorSubstitudo = headerAdicionalSubs
-                                                .OrderBy(v => Math.Abs(NonSlashCharsRegex().Replace(v, "x").Length - NonSlashCharsRegex().Replace(valorTemp, "x").Length)).First();
+                                                .OrderByDescending(v => i >= headerAdicionalSubs.Length || j++ >= headerAdicional.Value.Length || v == headerAdicionalSubs[i])
+                                                .ThenBy(v => Math.Abs(NonSlashCharsRegex().Replace(v, "x").Length - NonSlashCharsRegex().Replace(valorTemp, "x").Length))
+                                                .ThenBy(v => Math.Abs(i - k++)).First();
 
                                             valorTemp = substRegex.Replace(valorTemp, valorSubstitudo);
-                                            break;
                                         }
+
+                                        i++;
                                     }
                                 }
                                 else

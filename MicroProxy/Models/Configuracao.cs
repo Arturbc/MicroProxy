@@ -14,6 +14,7 @@
         public string? CertificadoPrivado { get; protected set; }
         public string? CertificadoPrivadoChave { get; protected set; }
         public string? ArquivosEstaticos { get; protected set; }
+        public string? TratamentoErroInterno { get; protected set; }
         public string[] ExtensoesUrlNaoRecurso { get; protected set; }
         public Site[] Sites { get; protected set; }
         public string[] AllowOrigins { get; protected set; }
@@ -35,6 +36,7 @@
             CertificadoPrivado = ConfigurationRoot.GetValue<string>("CertificadoPrivado")?.Trim();
             CertificadoPrivadoChave = ConfigurationRoot.GetValue<string>("CertificadoPrivadoChave");
             ArquivosEstaticos = ConfigurationRoot.GetValue<string>("ArquivosEstaticos");
+            TratamentoErroInterno = ConfigurationRoot.GetValue<string>("TratamentoErroInterno");
             ExtensoesUrlNaoRecurso = ConfigurationRoot.GetSection("ExtensoesUrlNaoRecurso").Get<string[]>() ?? [];
             Sites = ConfigurationRoot.GetSection("Sites").Get<Site[]>()!;
             AllowOrigins = ConfigurationRoot.GetSection("Cors:AllowHosts").Get<string[]>() ?? [];

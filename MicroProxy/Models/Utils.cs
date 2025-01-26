@@ -5,6 +5,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
 using System.Net;
+using System.Net.Mime;
 using System.Text.RegularExpressions;
 using static MicroProxy.Models.Configuracao;
 
@@ -284,42 +285,11 @@ namespace MicroProxy.Models
                         }
 
                         if (request.Method == HttpMethods.Get && Path.HasExtension(pathAbsolutoUrlAtual)
-                            && ((configuracao.ArquivosEstaticos != null && configuracao.ArquivosEstaticos != "")
-                                || (site.ArquivosEstaticos != null && site.ArquivosEstaticos != "")))
+                            && ((configuracao.ArquivosEstaticos != null && configuracao.ArquivosEstaticos != "")))
                         {
-                            string pathDiretorioArquivo = Site.ProcessarPath($"{configuracao.ArquivosEstaticos}" +
-                                $"{site.ArquivosEstaticos}".ProcessarStringSubstituicao(site));
-                            string pathArquivoEstatico = pathDiretorioArquivo + pathAbsolutoUrlAtual;
-                            var arquivo = new PhysicalFileProvider(pathDiretorioArquivo).GetFileInfo(pathAbsolutoUrlAtual.TrimStart(['/', '\\']));
+                            string pathDiretorioArquivo = Site.ProcessarPath(configuracao.ArquivosEstaticos.ProcessarStringSubstituicao(site));
 
-                            if (arquivo.Exists)
-                            {
-                                var provedor = new FileExtensionContentTypeProvider();
-                                using var conteudoResposta = arquivo.CreateReadStream();
-                                var headersResposta = site.ProcessarHeaders(context.Response.Headers.ToDictionary(), site.ResponseHeadersAdicionais);
-
-                                foreach (var header in headersResposta.Where(h => h.Value.ToString().Length != 0))
-                                {
-                                    string[] valores = header.Value!;
-
-                                    if (!context.Response.Headers.TryAdd(header.Key, valores))
-                                    {
-                                        context.Response.Headers.Append(header.Key, valores);
-                                    }
-                                };
-
-                                context.Response.ContentLength = arquivo.Length;
-
-                                if (provedor.TryGetContentType(pathArquivoEstatico, out string? tipoConteudo))
-                                {
-                                    context.Response.ContentType = tipoConteudo;
-                                }
-
-                                await context.Response.SendFileAsync(arquivo);
-                                await context.Response.CompleteAsync();
-                                conteudoResposta.Seek(0, SeekOrigin.Begin);
-                                site.RespBody = await new StreamReader(conteudoResposta).ReadToEndAsync();
-                            }
+                            site.RespBody = await context.Response.SendFileAsync(site, pathDiretorioArquivo, Path.GetFileName(pathAbsolutoUrlAtual));
                         }
 
                         if (!context.Response.HasStarted)
@@ -463,6 +433,24 @@ namespace MicroProxy.Models
                 site ??= new();
                 site.Exception = new(null, ex);
                 context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+
+                if (configuracao.TratamentoErroInterno != null && configuracao.TratamentoErroInterno != "")
+                {
+                    string pathArquivo = Site.ProcessarPath(configuracao.TratamentoErroInterno.ProcessarStringSubstituicao(site));
+                    string[] partesPath = CharSeparadorDiretorioUrlRegex().Split(pathArquivo);
+
+                    site.RespBody = await context.Response
+                        .SendFileAsync(site, string.Join(Path.DirectorySeparatorChar, partesPath[0..(partesPath.Length - 1)]),
+                            Path.GetFileName(configuracao.TratamentoErroInterno));
+                }
+
+                if (!context.Response.HasStarted)
+                {
+                    context.Response.Headers.ContentType = MediaTypeNames.Text.Html;
+                    await context.Response.WriteAsync($"<!DOCTYPE html><html><head><meta charset=\"utf-8\" /><title>Erro {context.Response.StatusCode}</title></head>" +
+                        $"<body><h1>Erro {context.Response.StatusCode}</h1>{site.ExceptionMensagem?.ReplaceLineEndings("<br>")}</body></html>");
+                    await context.Response.CompleteAsync();
+                }
             }
 
             site ??= new();
@@ -472,7 +460,7 @@ namespace MicroProxy.Models
                 foreach (var log in configuracao.Logs ?? [])
                 {
                     string pathLog = Site.ProcessarPath(Site.PathInvalidCharsRegex().Replace(log.Value.Path.ProcessarStringSubstituicao(site), "_"));
-                    string nomeArquivo = Site.PathInvalidCharsRegex().Replace(log.Key.ProcessarStringSubstituicao(site), "_").Trim('/').Trim('\\').Replace("/", "_").Replace(@"\", "_");
+                    string nomeArquivo = Site.PathInvalidCharsRegex().Replace(log.Key.ProcessarStringSubstituicao(site), "_").Trim('/', '\\').Replace("/", "_").Replace(@"\", "_");
 
                     if (pathLog != "")
                     {
@@ -516,6 +504,59 @@ namespace MicroProxy.Models
                 response.Headers.Location = novoDestino;
                 response.StatusCode = permanent ? StatusCodes.Status308PermanentRedirect : StatusCodes.Status307TemporaryRedirect;
             }
+        }
+
+        public static async Task<string?> SendFileAsync(this HttpResponse httpResponse, Site site, string? pathDiretorio, string? pathArquivo)
+        {
+            if (pathDiretorio != null && pathDiretorio != "" && pathArquivo != null && pathArquivo != "")
+            {
+                pathDiretorio = Site.ProcessarPath(pathDiretorio.ProcessarStringSubstituicao(site));
+                pathArquivo = pathArquivo.ProcessarStringSubstituicao(site);
+                var arquivo = new PhysicalFileProvider(pathDiretorio).GetFileInfo(pathArquivo);
+
+                if (arquivo.Exists)
+                {
+                    var provedor = new FileExtensionContentTypeProvider();
+                    using var conteudoResposta = arquivo.CreateReadStream();
+                    var headersResposta = site.ProcessarHeaders(httpResponse.Headers.ToDictionary(), site.ResponseHeadersAdicionais);
+
+                    foreach (var header in headersResposta.Where(h => h.Value.ToString().Length != 0))
+                    {
+                        string[] valores = header.Value!;
+
+                        if (!httpResponse.Headers.TryAdd(header.Key, valores))
+                        {
+                            httpResponse.Headers.Append(header.Key, valores);
+                        }
+                    };
+
+                    httpResponse.ContentLength = arquivo.Length;
+
+                    if (provedor.TryGetContentType(pathArquivo, out string? tipoConteudo))
+                    {
+                        httpResponse.ContentType = tipoConteudo;
+                    }
+
+                    if (tipoConteudo != null
+                        && (tipoConteudo.StartsWith("text", StringComparison.InvariantCultureIgnoreCase)
+                            || tipoConteudo.StartsWith("application", StringComparison.InvariantCultureIgnoreCase)))
+                    {
+                        conteudoResposta.Seek(0, SeekOrigin.Begin);
+                        site.RespBody = (await new StreamReader(conteudoResposta).ReadToEndAsync()).ProcessarStringSubstituicao(site);
+                        await httpResponse.WriteAsync(site.RespBody);
+                    }
+                    else
+                    {
+                        await httpResponse.SendFileAsync(arquivo);
+                    }
+
+                    await httpResponse.CompleteAsync();
+
+                    return site.RespBody;
+                }
+            }
+
+            return null;
         }
 
         public static Dictionary<string, string?> ColetarDicionarioVariaveis<T>(this string valor, T obj)
@@ -602,5 +643,8 @@ namespace MicroProxy.Models
 
         [GeneratedRegex(@"\?|#|(?:(?<!/)$)")]
         private static partial Regex CharReservadosUrlRegex();
+
+        [GeneratedRegex(@"/|\\")]
+        private static partial Regex CharSeparadorDiretorioUrlRegex();
     }
 }
