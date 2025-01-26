@@ -1,6 +1,6 @@
 <h1>MicroProxy</h1>
 Ferramenta simplificada, versátil e portátil de Proxy Reverso para uso em múltiplos 
-propósitos, desde de redirecionamento de solicitações Web e API em HTTP ou HTTPS a
+propósitos, desde de redirecionamento de solicitações Web e API em HTTP ou HTTPS, a
 servir arquivos estáticos, incluindo HTMLs, JSONs, XMLs, imagens, etc., é possível
 misturar ambas as funções, por exemplo, redirecionar solicitações Web, com os arquivos
 estáticos armazenados e gerenciados pelo MicroProxy.
