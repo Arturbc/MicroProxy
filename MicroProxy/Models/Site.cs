@@ -14,7 +14,6 @@ namespace MicroProxy.Models
         private string _urlAlvo = null!;
         private string[]? _methods = null;
         private bool? _ignorarCertificadoAlvo = null;
-        private string? _arquivosEstaticos = null;
         private Dictionary<string, string[]>? _requestHeadersAdicionais = null;
         private Dictionary<string, string[]>? _responseHeadersAdicionais = null;
         private int _bufferResp;
@@ -96,9 +95,9 @@ namespace MicroProxy.Models
         public Dictionary<string, string[]>? RequestHeadersAdicionais { get => _requestHeadersAdicionais; set => _requestHeadersAdicionais ??= value; }
         public Dictionary<string, string[]>? ResponseHeadersAdicionais { get => _responseHeadersAdicionais; set => _responseHeadersAdicionais ??= value; }
         public int BufferResp { get => _bufferResp; set => _bufferResp = value; }
-        public string? ExePath { get => _exePath; set => _exePath ??= value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePath; }
-        public string? ExeArgumentos { get => _exeArgumentos; set => _exeArgumentos ??= value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exeArgumentos; }
-        public string? ExePathDiretorio { get => _exePathDiretorio; set => _exePathDiretorio ??= value != null ? PathInvalidCharsRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePathDiretorio; }
+        public string? ExePath { get => _exePath; set => _exePath ??= value != null ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePath; }
+        public string? ExeArgumentos { get => _exeArgumentos; set => _exeArgumentos ??= value != null ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exeArgumentos; }
+        public string? ExePathDiretorio { get => _exePathDiretorio; set => _exePathDiretorio ??= value != null ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePathDiretorio; }
         public bool JanelaVisivel { get => _janelaVisivel ?? false; set => _janelaVisivel ??= value; }
         public bool AutoExec { get => _autoExec ?? false; set => _autoExec ??= value; }
         public bool AutoFechar { get => _autoFechar ?? !JanelaVisivel; set => _autoFechar ??= value; }
@@ -235,15 +234,15 @@ namespace MicroProxy.Models
                 string[] keysCoringa = ["", "*"];
                 headersAdicionais = headersAdicionais.Where(v => v.Value.Length > 0).ToDictionary();
 
-                foreach (var header in headersOriginais.Where(h => headersAdicionais.Any(ha => FlagKeySubstRegex().Replace(ha.Key, "") == h.Key || keysCoringa.Contains(ha.Key))))
+                foreach (var header in headersOriginais.Where(h => headersAdicionais.Any(ha => FlagChaveSubstRegex().Replace(ha.Key, "") == h.Key || keysCoringa.Contains(ha.Key))))
                 {
                     string[] valores = [];
                     var listaHeaders = headersAdicionais.Where(h => h.Key.Equals(header.Key, StringComparison.InvariantCultureIgnoreCase) || h.Key == "").ToDictionary();
-                    var listaHeadersSubstitutos = headersAdicionais.Where(h => (FlagKeySubstRegex().Replace(h.Key, "").Equals(header.Key, StringComparison.InvariantCultureIgnoreCase)
+                    var listaHeadersSubstitutos = headersAdicionais.Where(h => (FlagChaveSubstRegex().Replace(h.Key, "").Equals(header.Key, StringComparison.InvariantCultureIgnoreCase)
                             && !h.Key.Equals(header.Key, StringComparison.InvariantCultureIgnoreCase)) || h.Key == "*")
-                        .ToDictionary(h => FlagKeySubstRegex().Replace(h.Key, ""), h => h.Value.Select(v => v.ProcessarStringSubstituicao(this)).ToArray());
+                        .ToDictionary(h => FlagChaveSubstRegex().Replace(h.Key, ""), h => h.Value.Select(v => v.ProcessarStringSubstituicao(this)).ToArray());
 
-                    if (listaHeaders.Where(l => l.Key != "").Count() < listaHeadersSubstitutos.Where(l => l.Key != "").Count())
+                    if (listaHeaders.Count(l => l.Key != "") < listaHeadersSubstitutos.Count(l => l.Key != ""))
                     {
                         if (listaHeadersSubstitutos.TryGetValue(header.Key, out var headerValores))
                         {
@@ -261,27 +260,46 @@ namespace MicroProxy.Models
                                 bool substituirValores = false;
                                 valores = [];
 
-                                if (listaHeadersSubstitutos.TryGetValue(headerAdicional.Key, out var headerAdicionalSubs))
+                                if (listaHeadersSubstitutos.TryGetValue(headerAdicional.Key, out var valoresHeaderSubs))
                                 {
                                     substituirValores = true;
 
                                     uint i = 0;
 
-                                    foreach (var valoresHeader in headerAdicional.Value)
+                                    foreach (var valorHeader in headerAdicional.Value)
                                     {
-                                        Regex substRegex = new(valoresHeader.ProcessarStringSubstituicao(this));
+                                        Regex substRegex = new(valorHeader.ProcessarStringSubstituicao(this));
                                         var valido = substRegex.IsMatch(valorTemp);
 
                                         if (valido)
                                         {
                                             uint j = 0;
-                                            uint k = 0;
-                                            string valorSubstitudo = headerAdicionalSubs
-                                                .OrderByDescending(v => i >= headerAdicionalSubs.Length || j++ >= headerAdicional.Value.Length || v == headerAdicionalSubs[i])
-                                                .ThenBy(v => Math.Abs(NonSlashCharsRegex().Replace(v, "x").Length - NonSlashCharsRegex().Replace(valorTemp, "x").Length))
-                                                .ThenBy(v => Math.Abs(i - k++)).First();
+                                            string valorSubstitudo = valoresHeaderSubs
+                                                .OrderByDescending(v =>
+                                                {
+                                                    if (valoresHeaderSubs.Length == headerAdicional.Value.Length)
+                                                    {
+                                                        return valoresHeaderSubs.Length - Math.Abs(i - j++);
+                                                    }
+
+                                                    Match[] separadores = [.. CharsSeparadoresRegex().Matches(valorTemp).ToArray()];
+                                                    char charSeparadorPrincipal = separadores.OrderByDescending(s => separadores.Count(sc => sc.Value == s.Value))
+                                                        .FirstOrDefault()?.Value.First() ?? '\0';
+
+                                                    if (charSeparadorPrincipal == '\0')
+                                                    {
+                                                        return 0;
+                                                    }
+
+                                                    return Math.Abs(v.Split(charSeparadorPrincipal).Length - valorTemp.Split(charSeparadorPrincipal).Length);
+                                                }).First();
 
                                             valorTemp = substRegex.Replace(valorTemp, valorSubstitudo);
+
+                                            if (valoresHeaderSubs.Length != headerAdicional.Value.Length)
+                                            {
+                                                break;
+                                            }
                                         }
 
                                         i++;
@@ -299,8 +317,8 @@ namespace MicroProxy.Models
                     }
                 }
 
-                foreach (var header in headersAdicionais.Where(h => !keysCoringa.Contains(h.Key) && !FlagKeySubstRegex().IsMatch(h.Key)
-                    && !headersAdicionais.Any(ha => FlagKeySubstRegex().Replace(ha.Key, "") == h.Key && ha.Key != h.Key) && !headersOriginais.ContainsKey(h.Key)))
+                foreach (var header in headersAdicionais.Where(h => !keysCoringa.Contains(h.Key) && !FlagChaveSubstRegex().IsMatch(h.Key)
+                    && !headersAdicionais.Any(ha => FlagChaveSubstRegex().Replace(ha.Key, "") == h.Key && ha.Key != h.Key) && !headersOriginais.ContainsKey(h.Key)))
                 {
                     string[] valores = [];
 
@@ -317,12 +335,12 @@ namespace MicroProxy.Models
         }
 
         [GeneratedRegex(@"\*([\w#-]+ *= *[\w#-]+(?=(?: *, *)|(?:$)))?$")]
-        private static partial Regex FlagKeySubstRegex();
+        private static partial Regex FlagChaveSubstRegex();
 
         [GeneratedRegex(@"(?:(?<!^[a-zA-Z]):)|(?:(?<!(?:^\\?)|(?:\w+[:%])|[\w.~])[\\/](?!%?\w))|[*?""<>|]")]
-        public static partial Regex PathInvalidCharsRegex();
+        public static partial Regex CharsInvalidosPathArquivoRegex();
 
-        [GeneratedRegex(@"[^/]+")]
-        public static partial Regex NonSlashCharsRegex();
+        [GeneratedRegex(@"[\\/;,:]+")]
+        public static partial Regex CharsSeparadoresRegex();
     }
 }
