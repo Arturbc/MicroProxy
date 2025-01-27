@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Mime;
 using System.Text.RegularExpressions;
@@ -400,7 +401,8 @@ namespace MicroProxy.Models
                                 memoryStream.Seek(0, SeekOrigin.Begin);
                                 await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body]);
                                 await context.Response.CompleteAsync();
-                                site.RespBody = await site.BodyAsString(memoryStream, content.Headers.ContentType?.MediaType);
+                                site.RespBody = await site.BodyAsString(memoryStream, content.Headers.ContentType?.MediaType
+                                    , content.Headers.ContentEncoding.FirstOrDefault());
                             }
                             else
                             {
@@ -551,7 +553,7 @@ namespace MicroProxy.Models
             return null;
         }
 
-        public static async Task<string> BodyAsString(this Site site, Stream conteudoResposta, string? tipoConteudo = null)
+        public static async Task<string> BodyAsString(this Site site, Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null)
         {
             site.RespBody = $"Dado[{tipoConteudo}]";
 
@@ -560,6 +562,30 @@ namespace MicroProxy.Models
                 || tipoConteudo.StartsWith("application", StringComparison.InvariantCultureIgnoreCase))
             {
                 conteudoResposta.Seek(0, SeekOrigin.Begin);
+
+                if (codecConteudo != null)
+                {
+                    switch (codecConteudo.ToLower())
+                    {
+                        case "gzip":
+                            conteudoResposta = new GZipStream(conteudoResposta, CompressionMode.Decompress);
+                            break;
+
+                        case "deflate":
+                            conteudoResposta = new DeflateStream(conteudoResposta, CompressionMode.Decompress);
+                            break;
+
+                        case "brotli":
+                        case "br":
+                            conteudoResposta = new BrotliStream(conteudoResposta, CompressionMode.Decompress);
+                            break;
+
+                        case "zstd":
+                            conteudoResposta = new ZLibStream(conteudoResposta, CompressionMode.Decompress);
+                            break;
+                    }
+                }
+
                 site.RespBody = (await new StreamReader(conteudoResposta).ReadToEndAsync()).ProcessarStringSubstituicao(site);
             }
 

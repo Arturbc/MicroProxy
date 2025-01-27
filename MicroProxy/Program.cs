@@ -1,4 +1,6 @@
 using MicroProxy.Models;
+using Microsoft.AspNetCore.ResponseCompression;
+using System.IO.Compression;
 using static MicroProxy.Models.Configuracao;
 using static MicroProxy.Models.Site;
 
@@ -13,6 +15,7 @@ internal partial class Program
     private static void Main(string[] args)
     {
         Configuracao configuracao = new();
+        string[]? codecConteudo = configuracao.CompressionResponse?.Split(',', StringSplitOptions.TrimEntries);
 
         bool https = true;
         var builder = WebApplication.CreateBuilder(args);
@@ -121,16 +124,47 @@ internal partial class Program
         }
 #endif
 
+        if (codecConteudo != null && string.Join(',', codecConteudo).Length > 0)
+        {
+            CompressionLevel compressionLevel = (CompressionLevel)(codecConteudo.Length > 1 ? int.Parse(codecConteudo[1]) : 0);
+
+            switch (codecConteudo[0].ToLower())
+            {
+                case "gzip":
+                    builder.Services.Configure<GzipCompressionProviderOptions>(optc => optc.Level = compressionLevel);
+                    builder.Services.AddResponseCompression(option =>
+                    {
+                        option.Providers.Add<GzipCompressionProvider>();
+                        option.EnableForHttps = https;
+                    });
+                    break;
+
+                case "brotli":
+                case "br":
+                    builder.Services.Configure<BrotliCompressionProviderOptions>(optc => optc.Level = compressionLevel);
+                    builder.Services.AddResponseCompression(option =>
+                    {
+                        option.Providers.Add<BrotliCompressionProvider>();
+                        option.EnableForHttps = https;
+                    });
+                    break;
+            }
+        }
+
         var app = builder.Build();
         var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 
         lifetime.ApplicationStopping.Register(OnShutdown);
 
         // Configure the HTTP request pipeline.
-
         if (https)
         {
             app.UseHttpsRedirection();
+        }
+
+        if (codecConteudo != null && string.Join(',', codecConteudo).Length > 0)
+        {
+            app.UseResponseCompression();
         }
 
         app.UseSession();
