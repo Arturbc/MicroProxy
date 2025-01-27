@@ -275,7 +275,7 @@ namespace MicroProxy.Models
                                         {
                                             if (valoresHeaderSubs.Length == headerAdicional.Value.Length)
                                             {
-                                                valorTemp = substRegex.Replace(valorTemp, valoresHeaderSubs[i++]);
+                                                valorTemp = substRegex.Replace(valorTemp, valoresHeaderSubs[i]);
                                             }
                                             else
                                             {
@@ -294,9 +294,12 @@ namespace MicroProxy.Models
                                                     }).ThenBy(v => Math.Abs(v.Length - valorHeader.Length)).ThenBy(v => v.Length).First();
 
                                                 valorTemp = substRegex.Replace(valorTemp, valorSubstitudo);
+
                                                 break;
                                             }
                                         }
+
+                                        i++;
                                     }
                                 }
                                 else

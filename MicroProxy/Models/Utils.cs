@@ -56,7 +56,7 @@ namespace MicroProxy.Models
             {
                 var cookiesSites = CookiesSites;
                 bool tratarUrl = !Path.HasExtension(urlAtual.AbsolutePath) || configuracao.ExtensoesUrlNaoRecurso
-                    .Any(e => e.Trim('.').Equals(Path.GetExtension(urlAtual.AbsolutePath).Trim('.'), StringComparison.InvariantCultureIgnoreCase));
+                    .Any(e => e == "*" || e.Trim('.').Equals(Path.GetExtension(urlAtual.AbsolutePath).Trim('.'), StringComparison.InvariantCultureIgnoreCase));
                 Uri urlAlvo;
                 Uri? melhorBind = null;
                 string? pathUrlAnterior = PathUrlAtual;
@@ -400,8 +400,7 @@ namespace MicroProxy.Models
                                 memoryStream.Seek(0, SeekOrigin.Begin);
                                 await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body]);
                                 await context.Response.CompleteAsync();
-                                memoryStream.Seek(0, SeekOrigin.Begin);
-                                site.RespBody = await new StreamReader(memoryStream).ReadToEndAsync();
+                                site.RespBody = await site.BodyAsString(memoryStream, content.Headers.ContentType?.MediaType);
                             }
                             else
                             {
@@ -543,20 +542,28 @@ namespace MicroProxy.Models
 
                     await httpResponse.SendFileAsync(arquivo);
                     await httpResponse.CompleteAsync();
-
-                    if (tipoConteudo != null
-                        && (tipoConteudo.StartsWith("text", StringComparison.InvariantCultureIgnoreCase)
-                            || tipoConteudo.StartsWith("application", StringComparison.InvariantCultureIgnoreCase)))
-                    {
-                        conteudoResposta.Seek(0, SeekOrigin.Begin);
-                        site.RespBody = (await new StreamReader(conteudoResposta).ReadToEndAsync()).ProcessarStringSubstituicao(site);
-                    }
+                    site.RespBody = await site.BodyAsString(conteudoResposta, tipoConteudo);
 
                     return site.RespBody;
                 }
             }
 
             return null;
+        }
+
+        public static async Task<string> BodyAsString(this Site site, Stream conteudoResposta, string? tipoConteudo = null)
+        {
+            site.RespBody = $"Dado[{tipoConteudo}]";
+
+            if (tipoConteudo == null
+                || tipoConteudo.StartsWith("text", StringComparison.InvariantCultureIgnoreCase)
+                || tipoConteudo.StartsWith("application", StringComparison.InvariantCultureIgnoreCase))
+            {
+                conteudoResposta.Seek(0, SeekOrigin.Begin);
+                site.RespBody = (await new StreamReader(conteudoResposta).ReadToEndAsync()).ProcessarStringSubstituicao(site);
+            }
+
+            return site.RespBody;
         }
 
         public static Dictionary<string, string?> ColetarDicionarioVariaveis<T>(this string valor, T obj)
