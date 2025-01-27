@@ -16,7 +16,8 @@ namespace MicroProxy.Models
         private bool? _ignorarCertificadoAlvo = null;
         private Dictionary<string, string[]>? _requestHeadersAdicionais = null;
         private Dictionary<string, string[]>? _responseHeadersAdicionais = null;
-        private int _bufferResp;
+        private int? _bufferResp;
+        private bool? _usarProxy;
         private string? _exePath = null;
         private string? _exeArgumentos = null!;
         private string? _exePathDiretorio = null!;
@@ -40,7 +41,7 @@ namespace MicroProxy.Models
         public string PathAndQueryAtual => new Uri(UrlAtual).PathAndQuery.TrimEnd('/');
         public string AbsolutePathAtual => new Uri(UrlAtual).AbsolutePath.TrimEnd('/');
         public string PathAtualSubstituto { get; private set; } = "";
-        public string PathAtualAdicional => Utils.PathUrlAtual ?? "";
+        public string PathAtualAdicional { get; set; } = "";
         public string AbsolutePathAtualOrigemRedirect => Utils.AbsolutePathUrlOrigemRedirect ?? "";
         public string AuthorityAlvo => new Uri(_urlAlvo).Authority;
         public string HostAlvo => new Uri(_urlAlvo).Host;
@@ -94,7 +95,8 @@ namespace MicroProxy.Models
         public string[] Methods { get => _methods!; set => _methods ??= value ?? ["*"]; }
         public Dictionary<string, string[]>? RequestHeadersAdicionais { get => _requestHeadersAdicionais; set => _requestHeadersAdicionais ??= value; }
         public Dictionary<string, string[]>? ResponseHeadersAdicionais { get => _responseHeadersAdicionais; set => _responseHeadersAdicionais ??= value; }
-        public int BufferResp { get => _bufferResp; set => _bufferResp = value; }
+        public int BufferResp { get => _bufferResp ?? 0; set => _bufferResp = _bufferResp == null ? value : _bufferResp; }
+        public bool UsarProxy { get => _usarProxy ?? false; set => _usarProxy = _usarProxy == null ? value : _usarProxy; }
         public string? ExePath { get => _exePath; set => _exePath ??= value != null ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePath; }
         public string? ExeArgumentos { get => _exeArgumentos; set => _exeArgumentos ??= value != null ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exeArgumentos; }
         public string? ExePathDiretorio { get => _exePathDiretorio; set => _exePathDiretorio ??= value != null ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePathDiretorio; }

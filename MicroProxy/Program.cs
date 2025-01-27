@@ -172,6 +172,9 @@ internal partial class Program
         app.Use(async (context, next) =>
         {
             configuracao = new();
+            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            context.Response.Headers.Pragma = "no-cache";
+            context.Response.Headers.Expires = "0";
             await next.ProcessarRequisicao(context, configuracao);
         });
 
