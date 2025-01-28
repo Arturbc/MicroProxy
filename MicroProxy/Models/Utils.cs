@@ -53,14 +53,14 @@ namespace MicroProxy.Models
             HttpRequest request = context.Request;
             Uri urlAtual = new(request.GetDisplayUrl());
             Site? site = null;
+            bool tratarUrl = !Path.HasExtension(urlAtual.AbsolutePath) || configuracao.ExtensoesUrlNaoRecurso
+                .Any(e => e == "*" || e.Trim('.').Equals(Path.GetExtension(urlAtual.AbsolutePath).Trim('.'), StringComparison.InvariantCultureIgnoreCase));
 
             try
             {
                 var cookiesSites = CookiesSites;
                 var pathUrlAtual = PathUrlAtual;
                 var absolutePathUrlOrigemRedirect = AbsolutePathUrlOrigemRedirect;
-                bool tratarUrl = !Path.HasExtension(urlAtual.AbsolutePath) || configuracao.ExtensoesUrlNaoRecurso
-                    .Any(e => e == "*" || e.Trim('.').Equals(Path.GetExtension(urlAtual.AbsolutePath).Trim('.'), StringComparison.InvariantCultureIgnoreCase));
                 Uri urlAlvo;
                 Uri? melhorBind = null;
                 string? pathUrlAnterior = pathUrlAtual;
@@ -424,7 +424,7 @@ namespace MicroProxy.Models
                                             pathUrlAtual = null;
                                         }
 
-                                        context.Response.RedirectPreserveMethod(absolutePathUrlOrigemRedirect);
+                                        context.Response.RedirectPreserveMethod(absolutePathUrlOrigemRedirect, true);
                                     }
 
                                     absolutePathUrlOrigemRedirect = null;
@@ -473,28 +473,31 @@ namespace MicroProxy.Models
             {
                 foreach (var log in configuracao.Logs ?? [])
                 {
-                    string pathLog = Site.ProcessarPath(Site.CharsInvalidosPathArquivoRegex().Replace(log.Value.Path.ProcessarStringSubstituicao(site), "_"));
-                    string nomeArquivo = Site.CharsInvalidosPathArquivoRegex().Replace(log.Key.ProcessarStringSubstituicao(site), "_").Trim('/', '\\').Replace("/", "_").Replace(@"\", "_");
-
-                    if (pathLog != "")
+                    if (tratarUrl || !log.Value.IgnorarArquivosEstaticos)
                     {
-                        string mensagem = log.Value.Mensagem.ProcessarStringSubstituicao(site);
-                        string[] tratamentosRegex = log.Value.TratamentoRegex ?? [];
-                        int qtdTratamentos = tratamentosRegex.Length;
+                        string pathLog = Site.ProcessarPath(Site.CharsInvalidosPathArquivoRegex().Replace(log.Value.Path.ProcessarStringSubstituicao(site), "_"));
+                        string nomeArquivo = Site.CharsInvalidosPathArquivoRegex().Replace(log.Key.ProcessarStringSubstituicao(site), "_").Trim('/', '\\').Replace("/", "_").Replace(@"\", "_");
 
-                        if (!Directory.Exists(pathLog))
+                        if (pathLog != "")
                         {
-                            Directory.CreateDirectory(pathLog);
+                            string mensagem = log.Value.Mensagem.ProcessarStringSubstituicao(site);
+                            string[] tratamentosRegex = log.Value.TratamentoRegex ?? [];
+                            int qtdTratamentos = tratamentosRegex.Length;
+
+                            if (!Directory.Exists(pathLog))
+                            {
+                                Directory.CreateDirectory(pathLog);
+                            }
+
+                            for (int i = 1; i < qtdTratamentos; i += 2)
+                            {
+                                Regex tratamentoRegex = new(tratamentosRegex[i - 1], RegexOptions.Multiline | RegexOptions.IgnoreCase);
+
+                                mensagem = tratamentoRegex.Replace(mensagem, tratamentosRegex[i]);
+                            }
+
+                            if (mensagem != "") File.AppendAllText($"{pathLog}/{nomeArquivo}", mensagem);
                         }
-
-                        for (int i = 1; i < qtdTratamentos; i += 2)
-                        {
-                            Regex tratamentoRegex = new(tratamentosRegex[i - 1], RegexOptions.Multiline | RegexOptions.IgnoreCase);
-
-                            mensagem = tratamentoRegex.Replace(mensagem, tratamentosRegex[i]);
-                        }
-
-                        if (mensagem != "") File.AppendAllText($"{pathLog}/{nomeArquivo}", mensagem);
                     }
                 }
             }
