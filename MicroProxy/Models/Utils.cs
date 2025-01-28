@@ -309,9 +309,6 @@ namespace MicroProxy.Models
                             }
 
                             HttpClient httpClient = new(clientHandler);
-
-                            httpClient.DefaultRequestHeaders.CacheControl = new CacheControlHeaderValue() { NoCache = true, NoStore = true, MustRevalidate = true };
-
                             Dictionary<string, StringValues> headersReq = request.Headers
                                     .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
                                 .ToDictionary();
