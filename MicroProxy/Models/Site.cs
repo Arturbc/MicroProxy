@@ -106,33 +106,34 @@ namespace MicroProxy.Models
 
         public void ExibirVariaveisDisponiveis()
         {
-            string variaveis = "";
+            string[] variaveis = [.. GetType().GetProperties().Select(p => "##" + p.Name + "##")
+                .Union(GetType().GetFields().Select(f => "##" + f.Name + "##")).Order()];
 
-            foreach (var variavel in GetType().GetProperties().Select(p => p.Name)
-                .Union(GetType().GetFields().Select(f => f.Name)).Order())
+            if (variaveis.Length != 0) ExibirLog(variaveis, "Variáveis disponíveis:", ", ");
+        }
+
+        public static void ExibirLog(string mensagem, string? scope = null) => ExibirLog([mensagem], scope);
+
+        public static void ExibirLog(string[] mensagens, string? scope = null, string separadorLogs = " ")
+        {
+            using ILoggerFactory loggerFactory =
+                LoggerFactory.Create(builder =>
+                    builder.AddSimpleConsole(options =>
+                    {
+                        options.IncludeScopes = true;
+                        options.SingleLine = true;
+                        options.TimestampFormat = "HH:mm:ss ";
+                    }));
+            ILogger<Program> logger = loggerFactory.CreateLogger<Program>();
+
+            if (scope != null)
             {
-                if (variaveis != "")
+                using (logger.BeginScope(scope))
                 {
-                    variaveis += ", ";
+                    logger.LogInformation(string.Join(separadorLogs, mensagens));
                 }
-
-                variaveis += $"##{variavel}##";
             }
-
-            if (variaveis != "")
-            {
-                using ILoggerFactory loggerFactory =
-                    LoggerFactory.Create(builder =>
-                        builder.AddSimpleConsole(options =>
-                        {
-                            options.IncludeScopes = true;
-                            options.SingleLine = true;
-                            options.TimestampFormat = "HH:mm:ss ";
-                        }));
-                ILogger<Program> logger = loggerFactory.CreateLogger<Program>();
-
-                logger.LogInformation($"Variáveis disponíveis: {variaveis}");
-            }
+            else logger.LogInformation(string.Join(separadorLogs, mensagens));
         }
 
         public static string ProcessarPath(string path)
@@ -149,15 +150,6 @@ namespace MicroProxy.Models
         {
             if (!string.IsNullOrEmpty(ExePath))
             {
-                using ILoggerFactory loggerFactory =
-                    LoggerFactory.Create(builder =>
-                        builder.AddSimpleConsole(options =>
-                        {
-                            options.IncludeScopes = true;
-                            options.SingleLine = true;
-                            options.TimestampFormat = "HH:mm:ss ";
-                        }));
-                ILogger<Program> logger = loggerFactory.CreateLogger<Program>();
                 string exePath = ProcessarPath(ExePath);
                 string exePathDiretorio = ProcessarPath(ExePathDiretorio ?? "");
                 string nomeProcesso = Path.GetFileNameWithoutExtension(exePath);
@@ -177,20 +169,18 @@ namespace MicroProxy.Models
 
                 if (exec != null)
                 {
-                    using (logger.BeginScope($"[SSID {exec.Id} ({exec.ProcessName})]"))
+                    if (!exec.Responding)
                     {
-                        if (!exec.Responding)
+                        string[] mensagens = [" Não está respondendo!"];
+
+                        if (!exec.HasExited)
                         {
-                            logger.LogInformation($" Não está respondendo!");
-
-                            if (!exec.HasExited)
-                            {
-                                exec.Kill();
-                                logger.LogInformation($" Finalizado!");
-                            }
-
-                            exec = null;
+                            exec.Kill();
+                            mensagens = [.. mensagens.Append(" Finalizado!")];
                         }
+
+                        ExibirLog(mensagens, $"[SSID {exec.Id} ({exec.ProcessName})]");
+                        exec = null;
                     }
                 }
 
@@ -198,17 +188,13 @@ namespace MicroProxy.Models
                 {
                     ProcessStartInfo info = new() { FileName = exePath, WorkingDirectory = pathExe, Arguments = ExeArgumentos, CreateNoWindow = !JanelaVisivel };
 
-                    logger.LogInformation($"Inicializando {exeName}...");
+                    ExibirLog($"Inicializando {exeName}...");
                     exec = Process.Start(info);
 
                     if (exec != null)
                     {
                         Executaveis = [.. Executaveis.Where(e => !e.Processo.HasExited).Append(new() { Processo = exec, AutoFechar = AutoFechar })];
-
-                        using (logger.BeginScope($"[SSID {exec.Id} ({exec.ProcessName})]"))
-                        {
-                            logger.LogInformation($"Inicializado!");
-                        }
+                        ExibirLog("Inicializado!", $"[SSID {exec.Id} ({exec.ProcessName})]");
                     }
                 }
             }

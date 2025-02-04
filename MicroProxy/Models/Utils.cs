@@ -6,7 +6,6 @@ using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
 using System.IO.Compression;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Mime;
 using System.Text.RegularExpressions;
 using static MicroProxy.Models.Configuracao;
