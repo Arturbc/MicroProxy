@@ -92,6 +92,7 @@ internal partial class Program
                             x509StorePC.Open(OpenFlags.ReadOnly);
 
                             var certificados = x509StoreUsuario.Certificates.Union(x509StorePC.Certificates)
+                                .Where(c => c.Extensions.Any(e => e is X509EnhancedKeyUsageExtension ekue ? ekue.EnhancedKeyUsages["1.3.6.1.5.5.7.3.1"] != null : false))
                                 .OrderByDescending(c => c.NotAfter).ThenByDescending(c => c.NotBefore);
 
                             certificado = certificados.FirstOrDefault(c => c.Subject == configuracao.CertificadoPrivado)
