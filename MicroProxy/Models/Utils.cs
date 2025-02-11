@@ -420,7 +420,7 @@ namespace MicroProxy.Models
                                             pathUrlAtual = null;
                                         }
 
-                                        context.Response.RedirectPreserveMethod(absolutePathUrlOrigemRedirect, true);
+                                        //context.Response.RedirectPreserveMethod(absolutePathUrlOrigemRedirect, true);
                                     }
 
                                     absolutePathUrlOrigemRedirect = null;
