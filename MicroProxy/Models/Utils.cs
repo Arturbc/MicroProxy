@@ -65,7 +65,7 @@ namespace MicroProxy.Models
                 string? pathUrlAnterior = pathUrlAtual;
                 Site[] sites = [];
 
-                while (sites.Length == 0 && pathUrlAnterior == pathUrlAtual)
+                while (sites.Length == 0 && (pathUrlAnterior?.Equals(pathUrlAtual, StringComparison.InvariantCultureIgnoreCase) ?? (pathUrlAnterior == pathUrlAtual)))
                 {
                     if (pathUrlAtual != null && !CharReservadosUrlRegex().Replace(urlAtual.AbsolutePath, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/"), StringComparison.InvariantCultureIgnoreCase)
                         && tratarUrl)
@@ -96,13 +96,13 @@ namespace MicroProxy.Models
                                     i = iMin;
                                 }
 
-                                if($"{urlAlvo.Scheme}://{urlAlvo.Authority}{pathUrlAlvo}" == $"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}"
+                                if($"{urlAlvo.Scheme}://{urlAlvo.Authority}{pathUrlAlvo}".Equals($"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}", StringComparison.InvariantCultureIgnoreCase)
                                     || (!configuracao.Sites.Any(ss => ss.BindUrls != null
-                                            && ss.BindUrls.Contains($"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}"))
-                                        && $"{urlAlvo.Authority}{pathUrlAlvo}" == $"{urlAtual.Authority}{partePathUrlAtual}")
+                                            && ss.BindUrls.Contains($"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}", StringComparer.InvariantCultureIgnoreCase))
+                                        && $"{urlAlvo.Authority}{pathUrlAlvo}".Equals($"{urlAtual.Authority}{partePathUrlAtual}", StringComparison.InvariantCultureIgnoreCase))
                                     || (!configuracao.Sites.Any(ss => ss.BindUrls != null
-                                            && ss.BindUrls.Select(bu => new Uri(bu).Authority).Contains($"{urlAtual.Authority}{partePathUrlAtual}"))
-                                        && $"{urlAlvo.Host}{pathUrlAlvo}" == $"{urlAtual.Host}{partePathUrlAtual}")
+                                            && ss.BindUrls.Select(bu => new Uri(bu).Authority).Contains($"{urlAtual.Authority}{partePathUrlAtual}", StringComparer.InvariantCultureIgnoreCase))
+                                        && $"{urlAlvo.Host}{pathUrlAlvo}".Equals($"{urlAtual.Host}{partePathUrlAtual}", StringComparison.InvariantCultureIgnoreCase))
                                     )
                                 {
                                     if (melhorBind == null || pathUrlAlvo.Length > melhorBind.AbsolutePath.Length
@@ -116,7 +116,7 @@ namespace MicroProxy.Models
                                         }
                                     }
 
-                                    if (melhorBind != null && melhorBind == urlAlvo) return true;
+                                    if (melhorBind != null && melhorBind.OriginalString.Equals(urlAlvo.OriginalString, StringComparison.InvariantCultureIgnoreCase)) return true;
                                 }
                             }
 
@@ -145,14 +145,14 @@ namespace MicroProxy.Models
                 }
 
                 site = sites.OrderByDescending(s => s.BindUrls == null)
-                    .ThenByDescending(s => s.Methods.Contains(request.Method)).ThenBy(s => s.Methods.Length)
-                    .ThenBy(s => string.Join(',', s.Methods))
-                    .FirstOrDefault(s => s.BindUrls == null || s.BindUrls.Any(b => new Uri(b) == melhorBind));
+                    .ThenByDescending(s => s.Methods.Contains(request.Method, StringComparer.InvariantCultureIgnoreCase))
+                    .ThenBy(s => s.Methods.Length).ThenBy(s => string.Join(',', s.Methods))
+                    .FirstOrDefault(s => s.BindUrls == null || s.BindUrls.Any(b => melhorBind != null && new Uri(b).OriginalString.Equals(melhorBind.OriginalString)));
 
                 string pathUrlCliente = request.GetEncodedPathAndQuery();
                 string[] methodsAceitos = [request.Method, "*"];
 
-                if (site == null || !site.Methods.Any(m => methodsAceitos.Contains(m)))
+                if (site == null || !site.Methods.Any(m => methodsAceitos.Contains(m, StringComparer.InvariantCultureIgnoreCase)))
                 {
                     if (urlAtual.AbsolutePath.TrimEnd('/') != "" && pathUrlAtual != null)
                     {
@@ -236,7 +236,7 @@ namespace MicroProxy.Models
 
                             if (pathUrlAlvo != null)
                             {
-                                if (pathUrlAnterior == pathUrlAtual
+                                if ((pathUrlAnterior?.Equals(pathUrlAtual, StringComparison.InvariantCultureIgnoreCase) ?? pathUrlAnterior == pathUrlAtual)
                                     && ((absolutePathUrlOrigemRedirect == null
                                          && CharReservadosUrlRegex().Replace(pathUrlCliente, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlAlvo, "/"), StringComparison.InvariantCultureIgnoreCase))
                                         || (absolutePathUrlOrigemRedirect != null
@@ -288,7 +288,7 @@ namespace MicroProxy.Models
                             }
                         }
 
-                        if (request.Method == HttpMethods.Get && Path.HasExtension(pathAbsolutoUrlAtual)
+                        if (request.Method.Equals(HttpMethods.Get, StringComparison.InvariantCultureIgnoreCase) && Path.HasExtension(pathAbsolutoUrlAtual)
                             && configuracao.ArquivosEstaticos != null && configuracao.ArquivosEstaticos != "")
                         {
                             string pathDiretorioArquivo = Site.ProcessarPath(configuracao.ArquivosEstaticos.ProcessarStringSubstituicao(site));
@@ -508,7 +508,7 @@ namespace MicroProxy.Models
         {
             method ??= response.HttpContext.Request.Method;
 
-            if (method == HttpMethods.Get)
+            if (method.Equals(HttpMethods.Get, StringComparison.InvariantCultureIgnoreCase))
             {
                 response.Redirect(novoDestino);
             }
