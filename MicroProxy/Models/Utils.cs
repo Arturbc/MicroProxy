@@ -265,8 +265,6 @@ namespace MicroProxy.Models
                         }
 
                         site.UrlAlvo = $"{site.UrlAlvo}{pathUrlAlvo}";
-                        site.IpLocal = (context.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
-                        site.IpRemoto = (context.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
                         urlAlvo = new(site.UrlAlvo);
 
                         CookieContainer cookieContainer = new();

@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
 using System.Diagnostics;
+using System.Net;
 using System.Text.RegularExpressions;
 
 namespace MicroProxy.Models
@@ -11,7 +12,7 @@ namespace MicroProxy.Models
         private const int MILLISEGUNDO_AGUARDAR_FECHAR = 1000;
         private static Executavel[] Executaveis = [];
         private string[]? _bindAlvos = null;
-        private string _urlAlvo = null!;
+        private string? _urlAlvo = null;
         private string[]? _methods = null;
         private bool? _ignorarCertificadoAlvo = null;
         private Dictionary<string, string[]>? _requestHeadersAdicionais = null;
@@ -24,16 +25,16 @@ namespace MicroProxy.Models
         private bool? _janelaVisivel = null;
         private bool? _autoExec = null;
         private bool? _autoFechar = null;
-        public string? ReqHeaders = null;
-        public string? ReqBody = null;
-        public string? RespHeadersPreAjuste = null;
-        public string? RespBody = null;
-        public string IpLocal = null!;
-        public string IpRemoto = null!;
-        public string? IpRemotoFw = null;
-        public Exception? Exception = null;
 
+        public Exception? Exception { get; set; } = null;
         private static HttpContext HttpContext => Utils.HttpContextAccessor.HttpContext!;
+        public string IpLocal => (HttpContext.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
+        public string IpRemoto => (HttpContext.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
+        public string? IpRemotoFw { get; set; } = null;
+        public string? ReqHeaders { get; set; } = null;
+        public string? ReqBody { get; set; } = null;
+        public string? RespHeadersPreAjuste { get; set; } = null;
+        public string? RespBody { get; set; } = null;
         public string AuthorityAtual => new Uri(UrlAtual).Authority;
         public string HostAtual => new Uri(UrlAtual).Host;
         public string SchemaAtual => new Uri(UrlAtual).Scheme;
@@ -43,12 +44,12 @@ namespace MicroProxy.Models
         public string PathAtualSubstituto { get; private set; } = "";
         public string PathAtualAdicional { get; set; } = "";
         public string AbsolutePathAtualOrigemRedirect => Utils.AbsolutePathUrlOrigemRedirect ?? "";
-        public string AuthorityAlvo => new Uri(_urlAlvo).Authority;
-        public string HostAlvo => new Uri(_urlAlvo).Host;
-        public string SchemaAlvo => new Uri(_urlAlvo).Scheme;
-        public string HostPortAlvo => new Uri(_urlAlvo).Port.ToString();
-        public string PathAndQueryAlvo => new Uri(_urlAlvo).PathAndQuery.TrimEnd('/');
-        public string AbsolutePathAlvo => new Uri(_urlAlvo).AbsolutePath.TrimEnd('/');
+        public string AuthorityAlvo => new Uri(UrlAlvo).Authority;
+        public string HostAlvo => new Uri(UrlAlvo).Host;
+        public string SchemaAlvo => new Uri(UrlAlvo).Scheme;
+        public string HostPortAlvo => new Uri(UrlAlvo).Port.ToString();
+        public string PathAndQueryAlvo => new Uri(UrlAlvo).PathAndQuery.TrimEnd('/');
+        public string AbsolutePathAlvo => new Uri(UrlAlvo).AbsolutePath.TrimEnd('/');
         public string ReqMethodAtual => HttpContext.Request.Method;
         public string ReqHeadersPreAjuste => JsonConvert.SerializeObject(HttpContext.Request.Headers.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
         public int RespStatusCode => HttpContext.Response.StatusCode;
@@ -82,10 +83,10 @@ namespace MicroProxy.Models
         public string HorasAbreviadas => DataHoras.ToString("t");
         public string HorasCompletas => DataHoras.ToString("T");
 
-        public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos ??= ([.. value?.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))]); }
+        public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos ??= value != null ? [.. value.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))] : null; }
         public string UrlAlvo
         {
-            get => _urlAlvo; set
+            get => _urlAlvo ?? UrlAtual; set
             {
                 _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/');
                 if (PathAtualSubstituto == "" && _urlAlvo.StartsWith("http", StringComparison.InvariantCultureIgnoreCase)) PathAtualSubstituto = new Uri(_urlAlvo).AbsolutePath.TrimEnd('/');
