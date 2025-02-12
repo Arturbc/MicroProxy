@@ -20,11 +20,11 @@ namespace MicroProxy.Models
         private static readonly object _lock = new();
         public static readonly HttpContextAccessor HttpContextAccessor = new();
         private static ISession? Sessao => HttpContextAccessor.HttpContext?.Session;
-        private static Dictionary<Uri, string> CookiesSites
+        private static Dictionary<Uri, string[]> CookiesSites
         {
             get
             {
-                var dic = Sessao?.GetObjectFromJson<Dictionary<Uri, string>>(COOKIE_SITE);
+                var dic = Sessao?.GetObjectFromJson<Dictionary<Uri, string[]>>(COOKIE_SITE);
 
                 if (dic == null)
                 {
@@ -273,13 +273,13 @@ namespace MicroProxy.Models
 
                         if (tratarUrl)
                         {
-                            Uri[] uriCookies = [.. cookiesSites.Keys.Where(k => urlAlvo.OriginalString.StartsWith(k.OriginalString, StringComparison.InvariantCultureIgnoreCase))];
+                            var cookies = cookiesSites.Where(c => urlAlvo.OriginalString.StartsWith(c.Key.OriginalString, StringComparison.InvariantCultureIgnoreCase)).ToDictionary();
 
-                            foreach (var uriCookie in uriCookies)
+                            foreach (var cookie in cookies)
                             {
-                                if (cookiesSites.TryGetValue(uriCookie, out var cookie))
+                                foreach (var valor in cookie.Value)
                                 {
-                                    cookieContainer.SetCookies(uriCookie, cookie);
+                                    cookieContainer.SetCookies(cookie.Key, valor);
                                 }
                             }
                         }
@@ -380,6 +380,31 @@ namespace MicroProxy.Models
                                     .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
                                 .ToDictionary();
 
+                            if (tratarUrl)
+                            {
+                                var cookies = cookieContainer.GetCookies(urlAlvo).Select(c => new
+                                {
+                                    uriCookie = new Uri("http" + (c.Secure ? "s" : "") + "://" + c.Domain + $":{urlAlvo.Port}" + c.Path),
+                                    nomeCookie = c.Name,
+                                    valorCookie = c.Value
+                                }).ToArray();
+
+                                foreach (var cookie in cookies)
+                                {
+                                    if (cookie.valorCookie.Length != 0)
+                                    {
+                                        var valorCookie = cookie.nomeCookie + "=" + cookie.valorCookie;
+
+                                        if (!cookiesSites.TryAdd(cookie.uriCookie, [valorCookie]))
+                                        {
+                                            cookiesSites[cookie.uriCookie] = [.. cookiesSites[cookie.uriCookie]
+                                                .Where(c => !c.StartsWith(cookie.nomeCookie + "=", StringComparison.InvariantCultureIgnoreCase))
+                                                .Append(valorCookie)];
+                                        }
+                                    }
+                                }
+                            }
+
                             context.Response.StatusCode = (int)response.StatusCode;
                             headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
                             site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
@@ -389,30 +414,6 @@ namespace MicroProxy.Models
                                 if (!context.Response.Headers.TryAdd(header.Key, header.Value))
                                 {
                                     context.Response.Headers.Append(header.Key, header.Value);
-                                }
-                            }
-
-                            if (tratarUrl)
-                            {
-                                var cookies = cookieContainer.GetCookies(urlAlvo).Select(c => new
-                                {
-                                    uriCookie = new Uri("http" + (c.HttpOnly ? "" : "s") + "://" + c.Domain + $":{urlAlvo.Port}" + c.Path),
-                                    valorCookie = c.Name + "=" + c.Value
-                                }).ToArray();
-
-                                foreach (var cookie in cookies)
-                                {
-                                    if (cookie.valorCookie.Length != 0)
-                                    {
-                                        if (!cookiesSites.TryAdd(cookie.uriCookie, cookie.valorCookie))
-                                        {
-                                            cookiesSites[cookie.uriCookie] = cookie.valorCookie;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        cookiesSites.Remove(cookie.uriCookie);
-                                    }
                                 }
                             }
 
