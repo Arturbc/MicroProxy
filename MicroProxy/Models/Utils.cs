@@ -52,7 +52,7 @@ namespace MicroProxy.Models
             HttpRequest request = context.Request;
             Uri urlAtual = new(request.GetDisplayUrl());
             Site? site = null;
-            bool tratarUrl = !Path.HasExtension(urlAtual.AbsolutePath) || configuracao.ExtensoesUrlNaoRecurso
+            bool tratarUrl = !request.Method.Equals(HttpMethods.Get, StringComparison.InvariantCultureIgnoreCase) || !Path.HasExtension(urlAtual.AbsolutePath) || configuracao.ExtensoesUrlNaoRecurso
                 .Any(e => e == "*" || e.Trim('.').Equals(Path.GetExtension(urlAtual.AbsolutePath).Trim('.'), StringComparison.InvariantCultureIgnoreCase));
 
             try
@@ -181,12 +181,6 @@ namespace MicroProxy.Models
 
                     urlAlvo = new(site.UrlAlvo);
                     site.PathAtualAdicional = urlAlvo.AbsolutePath;
-                    CookieContainer cookieContainer = new();
-
-                    if (cookiesSites.TryGetValue(urlAlvo, out var cookie))
-                    {
-                        cookieContainer.SetCookies(urlAlvo, cookie);
-                    }
 
                     if (tratarUrl)
                     {
@@ -273,6 +267,22 @@ namespace MicroProxy.Models
                         site.UrlAlvo = $"{site.UrlAlvo}{pathUrlAlvo}";
                         site.IpLocal = (context.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
                         site.IpRemoto = (context.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
+                        urlAlvo = new(site.UrlAlvo);
+
+                        CookieContainer cookieContainer = new();
+
+                        if (tratarUrl)
+                        {
+                            Uri[] uriCookies = [.. cookiesSites.Keys.Where(k => urlAlvo.OriginalString.StartsWith(k.OriginalString, StringComparison.InvariantCultureIgnoreCase))];
+
+                            foreach (var uriCookie in uriCookies)
+                            {
+                                if (cookiesSites.TryGetValue(uriCookie, out var cookie))
+                                {
+                                    cookieContainer.SetCookies(uriCookie, cookie);
+                                }
+                            }
+                        }
 
                         string pathAbsolutoUrlAtual = request.Path.Value!.TrimEnd('/');
                         string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
@@ -321,7 +331,8 @@ namespace MicroProxy.Models
                                 foreach (var item in requestMessage.Content.Headers.GetType().GetProperties())
                                 {
                                     propsHeaders = [.. propsHeaders.Append(item.Name)];
-                                };
+                                }
+                                ;
                             }
 
                             headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
@@ -337,9 +348,8 @@ namespace MicroProxy.Models
                                     if (valorTemp != null)
                                     {
                                         valorTemp = CookieMicroproxyRegex().Replace(valorTemp, "");
+                                        valores = [.. valores.Append(valorTemp)];
                                     }
-
-                                    valores = [.. valores.Append(valorTemp)];
                                 }
 
                                 requestMessage.Headers.TryAddWithoutValidation(header.Key, valores);
@@ -348,7 +358,8 @@ namespace MicroProxy.Models
                                 {
                                     requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valores);
                                 }
-                            };
+                            }
+                            ;
 
                             string ipRemoto = site.IpRemotoFw ?? site.IpRemoto;
 
@@ -373,18 +384,37 @@ namespace MicroProxy.Models
                             headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
                             site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
 
-                            if (!cookiesSites.TryAdd(urlAlvo, cookieContainer.GetCookieHeader(urlAlvo)))
-                            {
-                                cookiesSites[urlAlvo] = cookieContainer.GetCookieHeader(urlAlvo);
-                            }
-
                             foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
                             {
                                 if (!context.Response.Headers.TryAdd(header.Key, header.Value))
                                 {
                                     context.Response.Headers.Append(header.Key, header.Value);
                                 }
-                            };
+                            }
+
+                            if (tratarUrl)
+                            {
+                                var cookies = cookieContainer.GetCookies(urlAlvo).Select(c => new
+                                {
+                                    uriCookie = new Uri("http" + (c.HttpOnly ? "" : "s") + "://" + c.Domain + $":{urlAlvo.Port}" + c.Path),
+                                    valorCookie = c.Name + "=" + c.Value
+                                }).ToArray();
+
+                                foreach (var cookie in cookies)
+                                {
+                                    if (cookie.valorCookie.Length != 0)
+                                    {
+                                        if (!cookiesSites.TryAdd(cookie.uriCookie, cookie.valorCookie))
+                                        {
+                                            cookiesSites[cookie.uriCookie] = cookie.valorCookie;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        cookiesSites.Remove(cookie.uriCookie);
+                                    }
+                                }
+                            }
 
                             if (request.Method != HttpMethods.Get)
                             {
@@ -541,7 +571,8 @@ namespace MicroProxy.Models
                         {
                             httpResponse.Headers.Append(header.Key, valores);
                         }
-                    };
+                    }
+                    ;
 
                     httpResponse.ContentLength = arquivo.Length;
 
