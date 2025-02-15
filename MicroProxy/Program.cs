@@ -96,8 +96,17 @@ internal partial class Program
                                 .Where(c => c.Extensions.Any(e => e is X509EnhancedKeyUsageExtension ekue && ekue.EnhancedKeyUsages["1.3.6.1.5.5.7.3.1"] != null))
                                 .OrderByDescending(c => c.NotAfter).ThenByDescending(c => c.NotBefore);
 
-                            certificado = certificados.FirstOrDefault(c => c.Subject == configuracao.CertificadoPrivado)
-                                ?? certificados.First(c => c.Subject.Contains(configuracao.CertificadoPrivado));
+                            try
+                            {
+                                certificado = certificados.FirstOrDefault(c => c.Subject == configuracao.CertificadoPrivado)
+                                    ?? certificados.First(c => c.Subject.Contains(configuracao.CertificadoPrivado));
+                            }
+                            catch (InvalidOperationException ex)
+                            {
+                                var e = ex;
+
+                                throw new($"Arquivo ou caminho de certificado \"{configuracao.CertificadoPrivado}\" inválido!", e);
+                            }
 
                             if (mensagensLog == null)
                             {
