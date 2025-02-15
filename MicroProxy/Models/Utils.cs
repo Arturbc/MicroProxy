@@ -404,8 +404,8 @@ namespace MicroProxy.Models
                             }
 
                             context.Response.StatusCode = (int)response.StatusCode;
-                            headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
                             site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
+                            headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
 
                             foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
                             {
