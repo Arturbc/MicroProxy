@@ -13,6 +13,7 @@
         public ushort PortaHttpRedirect { get; protected set; }
         public string? CertificadoPrivado { get; protected set; }
         public string? CertificadoPrivadoChave { get; protected set; }
+        public string? CertificadoPrivadoSenha { get; protected set; }
         public string? ArquivosEstaticos { get; protected set; }
         public string? CompressionResponse { get; protected set; }
         public string? TratamentoErroInterno { get; protected set; }
@@ -35,7 +36,8 @@
             Ips = ConfigurationRoot.GetSection("IPs").Get<string[]>() ?? [];
             PortaHttpRedirect = ConfigurationRoot.GetValue<ushort?>("PortaHttpRedirect") ?? 0;
             CertificadoPrivado = ConfigurationRoot.GetValue<string>("CertificadoPrivado")?.Trim();
-            CertificadoPrivadoChave = ConfigurationRoot.GetValue<string>("CertificadoPrivadoChave");
+            CertificadoPrivadoChave = ConfigurationRoot.GetValue<string>("CertificadoPrivadoChave")?.Trim();
+            CertificadoPrivadoSenha = ConfigurationRoot.GetValue<string>("CertificadoPrivadoSenha");
             ArquivosEstaticos = ConfigurationRoot.GetValue<string>("ArquivosEstaticos");
             CompressionResponse = ConfigurationRoot.GetValue<string>("CompressionResponse");
             TratamentoErroInterno = ConfigurationRoot.GetValue<string>("TratamentoErroInterno");
@@ -48,6 +50,8 @@
             if (AllowOrigins.Length == 0) AllowOrigins = ["*"];
             if (AllowHeaders.Length == 0) AllowOrigins = ["*"];
             if (AllowMethods.Length == 0) AllowOrigins = ["*"];
+            if (CertificadoPrivadoChave == "") CertificadoPrivadoChave = null;
+            if (CertificadoPrivadoSenha == "") CertificadoPrivadoSenha = null;
         }
     }
 }

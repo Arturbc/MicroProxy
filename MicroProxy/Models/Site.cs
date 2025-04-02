@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
 using System.Text.RegularExpressions;
@@ -163,40 +164,47 @@ namespace MicroProxy.Models
                     && e.Processo.StartInfo.CreateNoWindow == !JanelaVisivel;
                 var exec = Executaveis.FirstOrDefault(consulta)?.Processo;
 
-                exec ??= Process.GetProcesses().FirstOrDefault(p => p.Id != Environment.ProcessId && nomesProcesso.Contains(p.ProcessName)
-                   && (p.MainModule == null
-                       || (p.MainModule.ModuleName == exeName && (p.MainModule.FileName.StartsWith(pathExe)
-                           || pathExe.StartsWith(p.MainModule.FileName.Replace(@$"\{exeName}", ""))))));
-
-                if (exec != null)
+                try
                 {
-                    if (!exec.Responding)
-                    {
-                        string[] mensagens = [" Não está respondendo!"];
-
-                        if (!exec.HasExited)
-                        {
-                            exec.Kill();
-                            mensagens = [.. mensagens.Append(" Finalizado!")];
-                        }
-
-                        ExibirLog(mensagens, $"[SSID {exec.Id} ({exec.ProcessName})]");
-                        exec = null;
-                    }
-                }
-
-                if (exec == null)
-                {
-                    ProcessStartInfo info = new() { FileName = exePath, WorkingDirectory = pathExe, Arguments = ExeArgumentos, CreateNoWindow = !JanelaVisivel };
-
-                    ExibirLog($"Inicializando {exeName}...");
-                    exec = Process.Start(info);
+                    exec ??= Process.GetProcesses().FirstOrDefault(p => p.Id != Environment.ProcessId && nomesProcesso.Contains(p.ProcessName)
+                       && (p.MainModule == null
+                           || (p.MainModule.ModuleName == exeName && (p.MainModule.FileName.StartsWith(pathExe)
+                               || pathExe.StartsWith(p.MainModule.FileName.Replace(@$"\{exeName}", ""))))));
 
                     if (exec != null)
                     {
-                        Executaveis = [.. Executaveis.Where(e => !e.Processo.HasExited).Append(new() { Processo = exec, AutoFechar = AutoFechar })];
-                        ExibirLog("Inicializado!", $"[SSID {exec.Id} ({exec.ProcessName})]");
+                        if (!exec.Responding)
+                        {
+                            string[] mensagens = [$"{exeName} Não está respondendo!"];
+
+                            if (!exec.HasExited)
+                            {
+                                exec.Kill();
+                                mensagens = [.. mensagens.Append(" Finalizado!")];
+                            }
+
+                            ExibirLog(mensagens, $"[SSID {exec.Id} ({exec.ProcessName})]");
+                            exec = null;
+                        }
                     }
+
+                    if (exec == null)
+                    {
+                        ProcessStartInfo info = new() { FileName = exePath, WorkingDirectory = pathExe, Arguments = ExeArgumentos, CreateNoWindow = !JanelaVisivel };
+
+                        ExibirLog($"Inicializando {exeName}...");
+                        exec = Process.Start(info);
+
+                        if (exec != null)
+                        {
+                            Executaveis = [.. Executaveis.Where(e => !e.Processo.HasExited).Append(new() { Processo = exec, AutoFechar = AutoFechar })];
+                            ExibirLog("Inicializado!", $"[SSID {exec.Id} ({exec.ProcessName})]");
+                        }
+                    }
+                }
+                catch (Win32Exception ex)
+                {
+                    ExibirLog($"Falha ao gerenciar {exeName}... [{ex.GetType()}] {ex.Message}");
                 }
             }
         }

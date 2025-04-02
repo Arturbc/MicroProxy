@@ -83,12 +83,21 @@ internal partial class Program
                         }
 
                         X509Certificate2? certificado = null;
-                        bool certificadoArquivo = File.Exists(configuracao.CertificadoPrivado);
-                        using X509Store x509StoreUsuario = new(StoreLocation.CurrentUser);
-                        using X509Store x509StorePC = new(StoreLocation.LocalMachine);
+                        string pathArquivoCertificado = ProcessarPath(configuracao.CertificadoPrivado);
+                        bool certificadoArquivo = File.Exists(pathArquivoCertificado);
+                        string certificadoPrivado = configuracao.CertificadoPrivado;
+                        string? chave = ProcessarPath(configuracao.CertificadoPrivadoChave ?? "");
+                        string? senha = configuracao.CertificadoPrivadoSenha;
 
-                        if (!certificadoArquivo)
+                        if (certificadoArquivo)
                         {
+                            certificado = new(pathArquivoCertificado, senha);
+                        }
+                        else
+                        {
+                            using X509Store x509StoreUsuario = new(StoreLocation.CurrentUser);
+                            using X509Store x509StorePC = new(StoreLocation.LocalMachine);
+
                             x509StoreUsuario.Open(OpenFlags.ReadOnly);
                             x509StorePC.Open(OpenFlags.ReadOnly);
 
@@ -98,14 +107,14 @@ internal partial class Program
 
                             try
                             {
-                                certificado = certificados.FirstOrDefault(c => c.Subject == configuracao.CertificadoPrivado)
-                                    ?? certificados.First(c => c.Subject.Contains(configuracao.CertificadoPrivado));
+                                certificado = certificados.FirstOrDefault(c => c.Subject == certificadoPrivado)
+                                    ?? certificados.First(c => c.Subject.Contains(certificadoPrivado));
                             }
                             catch (InvalidOperationException ex)
                             {
                                 var e = ex;
 
-                                throw new($"Arquivo ou caminho de certificado \"{configuracao.CertificadoPrivado}\" inválido!", e);
+                                throw new($"Arquivo ou caminho de certificado \"{certificadoPrivado}\" inválido!", e);
                             }
 
                             if (mensagensLog == null)
@@ -118,19 +127,10 @@ internal partial class Program
                             x509StoreUsuario.Close();
                             x509StorePC.Close();
                         }
-                        else
-                        {
-                            bool certificadoChaveArquivo = File.Exists(configuracao.CertificadoPrivadoChave) ||
-                                    string.IsNullOrEmpty(configuracao.CertificadoPrivadoChave);
 
-                            if (certificadoChaveArquivo)
-                            {
-                                certificado = X509Certificate2.CreateFromPemFile(ProcessarPath(configuracao.CertificadoPrivado), configuracao.CertificadoPrivadoChave);
-                            }
-                            else
-                            {
-                                certificado = new(ProcessarPath(configuracao.CertificadoPrivado), configuracao.CertificadoPrivadoChave);
-                            }
+                        if (!certificado.HasPrivateKey && chave != null)
+                        {
+                            certificado = certificado.CopyWithPrivateKey(Utils.CreateRsaFromPem(chave, senha));
                         }
 
                         serverOptions.Listen(ip, porta, listenOptions =>

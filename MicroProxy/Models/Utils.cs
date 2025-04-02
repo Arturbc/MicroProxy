@@ -7,6 +7,7 @@ using Newtonsoft.Json;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Mime;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using static MicroProxy.Models.Configuracao;
 
@@ -702,6 +703,68 @@ namespace MicroProxy.Models
                 }
             }
         }
+        public static RSA CreateRsaFromPem(string pathKey, string? senha = null)
+        {
+            // Remove the PEM header and footer
+            RSA rsa = RSA.Create();
+            string conteudoChave = File.ReadAllText(pathKey);
+
+            try
+            {
+                if (senha != null)
+                {
+                    rsa.ImportFromEncryptedPem(conteudoChave, senha);
+                }
+                else
+                {
+                    rsa.ImportFromPem(conteudoChave);
+                }
+            }
+            catch (ArgumentException ex)
+            {
+                byte[] chaveFonte = Convert.FromBase64String(ElemsKeyCertRegex().Replace(conteudoChave, ""));
+
+                try
+                {
+                    if (senha != null)
+                    {
+                        rsa.ImportEncryptedPkcs8PrivateKey(senha, chaveFonte, out _);
+                    }
+                    else
+                    {
+                        rsa.ImportPkcs8PrivateKey(chaveFonte, out _);
+                    }
+                }
+                catch (ArgumentException ex2)
+                {
+                    try
+                    {
+                        rsa.ImportRSAPrivateKey(chaveFonte, out _);
+                    }
+                    catch (ArgumentException ex3)
+                    {
+                        throw new ArgumentException(ex3.Message, new ArgumentException(ex2.Message, ex));
+                    }
+                }
+            }
+
+            if (OperatingSystem.IsWindows())
+            {
+                CspParameters cspParameters = new()
+                {
+                    KeyContainerName = pathKey,
+                    Flags = CspProviderFlags.UseMachineKeyStore | CspProviderFlags.UseNonExportableKey,
+                };
+
+                RSACryptoServiceProvider rsaPersistente = new(cspParameters);
+
+                rsaPersistente.ImportParameters(rsa.ExportParameters(true));
+                rsa.Dispose();
+                rsa = rsaPersistente;
+            }
+
+            return rsa;
+        }
 
         [GeneratedRegex($"(?<=(?:^|(?:; *))){NOME_COOKIE}[^;]+(?:(?:; *)|(?: *$))")]
         private static partial Regex CookieMicroproxyRegex();
@@ -717,5 +780,8 @@ namespace MicroProxy.Models
 
         [GeneratedRegex(@"/|\\")]
         private static partial Regex CharSeparadorDiretorioUrlRegex();
+
+        [GeneratedRegex(@"(?:-{5}[\w ]+-{5})|[\r\n]")]
+        private static partial Regex ElemsKeyCertRegex();
     }
 }
