@@ -753,7 +753,7 @@ namespace MicroProxy.Models
                 CspParameters cspParameters = new()
                 {
                     KeyContainerName = pathKey,
-                    Flags = CspProviderFlags.UseMachineKeyStore | CspProviderFlags.UseNonExportableKey,
+                    Flags = CspProviderFlags.UseNonExportableKey,
                 };
 
                 RSACryptoServiceProvider rsaPersistente = new(cspParameters);
