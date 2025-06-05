@@ -243,15 +243,15 @@ namespace MicroProxy.Models
                         pathUrlAlvo ??= pathUrlCliente;
 
                         if (tratarUrl && pathUrlAtual != null && melhorBind != null && melhorBind.Segments.Length > 1
-                            && pathUrlAlvo.StartsWith(melhorBind.AbsolutePath.TrimEnd('/')))
+                            && pathUrlAlvo.StartsWith(melhorBind.AbsolutePath))
                         {
-                            pathUrlAlvo = ('/' + string.Join('/', pathUrlAlvo.TrimStart('/').Split('/')[(melhorBind.Segments.Length - 1)..])).TrimEnd('/');
+                            pathUrlAlvo = ('/' + string.Join('/', pathUrlAlvo.TrimStart('/').Split('/')[(melhorBind.Segments.Length - 1)..]));
                         }
 
                         site.UrlAlvo = $"{site.UrlAlvo}{pathUrlAlvo}";
                         urlAlvo = new(site.UrlAlvo);
 
-                        string pathAbsolutoUrlAtual = request.Path.Value!.TrimEnd('/');
+                        string pathAbsolutoUrlAtual = request.Path.Value!;
                         string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
                         string[] ipsRemotosSemFw = [site.IpLocal, IPAddress.Loopback.ToString(), IPAddress.IPv6Loopback.ToString()];
 
@@ -275,61 +275,48 @@ namespace MicroProxy.Models
 
                         if (!context.Response.HasStarted)
                         {
-                            using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), site.UrlAlvo);
                             string[] propsHeaders = [];
+                            using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), site.UrlAlvo);
+                            Dictionary<string, StringValues> headersReq = request.Headers
+                                    .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
+                                .ToDictionary();
 
-                            if (tratarUrl)
+                            if (request.Method != HttpMethods.Get)
                             {
-                                Dictionary<string, StringValues> headersReq = request.Headers
-                                        .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-                                    .ToDictionary();
+                                request.EnableBuffering();
+                                requestMessage.Content = new StreamContent(request.Body);
 
-                                if (request.Method != HttpMethods.Get)
+                                foreach (var item in requestMessage.Content.Headers.GetType().GetProperties())
                                 {
-                                    request.EnableBuffering();
-                                    requestMessage.Content = new StreamContent(request.Body);
-
-                                    foreach (var item in requestMessage.Content.Headers.GetType().GetProperties())
-                                    {
-                                        propsHeaders = [.. propsHeaders.Append(item.Name)];
-                                    }
-                                }
-
-                                headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
-
-                                foreach (var header in headersReq.Where(h => h.Value.Count != 0))
-                                {
-                                    string[] valores = [];
-
-                                    foreach (var valor in header.Value)
-                                    {
-                                        var valorTemp = valor;
-
-                                        if (valorTemp != null)
-                                        {
-                                            valorTemp = CookieMicroproxyRegex().Replace(valorTemp, "");
-                                            valores = [.. valores.Append(valorTemp)];
-                                        }
-                                    }
-
-                                    requestMessage.Headers.TryAddWithoutValidation(header.Key, valores);
-
-                                    if (requestMessage.Content != null && propsHeaders.Contains(header.Key.Replace("-", "")))
-                                    {
-                                        requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valores);
-                                    }
+                                    propsHeaders = [.. propsHeaders.Append(item.Name)];
                                 }
                             }
 
-                            HttpClientHandler clientHandler = new() { AllowAutoRedirect = false, UseProxy = site.UsarProxy };
+                            headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
 
-                            if (site.IgnorarCertificadoAlvo)
+                            foreach (var header in headersReq.Where(h => h.Value.Count != 0))
                             {
-                                clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
-                                clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;
+                                string[] valores = [];
+
+                                foreach (var valor in header.Value)
+                                {
+                                    var valorTemp = valor;
+
+                                    if (valorTemp != null)
+                                    {
+                                        valorTemp = CookieMicroproxyRegex().Replace(valorTemp, "");
+                                        valores = [.. valores.Append(valorTemp)];
+                                    }
+                                }
+
+                                requestMessage.Headers.TryAddWithoutValidation(header.Key, valores);
+
+                                if (requestMessage.Content != null && propsHeaders.Contains(header.Key.Replace("-", "")))
+                                {
+                                    requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valores);
+                                }
                             }
 
-                            HttpClient httpClient = new(clientHandler);
                             string ipRemoto = site.IpRemotoFw ?? site.IpRemoto;
 
                             if (ipRemoto != null && ipRemoto.Length > 0 && ipRemoto != site.IpLocal)
@@ -342,6 +329,15 @@ namespace MicroProxy.Models
 
                             site.ReqHeaders = JsonConvert.SerializeObject(requestMessage.Headers.NonValidated.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
 
+                            using HttpClientHandler clientHandler = new() { AllowAutoRedirect = false, UseProxy = site.UsarProxy };
+
+                            if (site.IgnorarCertificadoAlvo)
+                            {
+                                clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
+                                clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;
+                            }
+
+                            using HttpClient httpClient = new(clientHandler);
                             using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead);
                             using HttpContent content = response.Content;
                             Dictionary<string, string[]> headersResposta = response.Headers
