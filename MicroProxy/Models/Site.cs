@@ -40,8 +40,8 @@ namespace MicroProxy.Models
         public string HostAtual => new Uri(UrlAtual).Host;
         public string SchemaAtual => new Uri(UrlAtual).Scheme;
         public string HostPortAtual => new Uri(UrlAtual).Port.ToString();
-        public string PathAndQueryAtual => new Uri(UrlAtual).PathAndQuery.TrimEnd('/');
-        public string AbsolutePathAtual => new Uri(UrlAtual).AbsolutePath.TrimEnd('/');
+        public string PathAndQueryAtual => new Uri(UrlAtual).PathAndQuery;
+        public string AbsolutePathAtual => new Uri(UrlAtual).AbsolutePath;
         public string PathAtualSubstituto { get; private set; } = "";
         public string PathAtualAdicional { get; set; } = "";
         public string AbsolutePathAtualOrigemRedirect => Utils.AbsolutePathUrlOrigemRedirect ?? "";
@@ -49,8 +49,8 @@ namespace MicroProxy.Models
         public string HostAlvo => new Uri(UrlAlvo).Host;
         public string SchemaAlvo => new Uri(UrlAlvo).Scheme;
         public string HostPortAlvo => new Uri(UrlAlvo).Port.ToString();
-        public string PathAndQueryAlvo => new Uri(UrlAlvo).PathAndQuery.TrimEnd('/');
-        public string AbsolutePathAlvo => new Uri(UrlAlvo).AbsolutePath.TrimEnd('/');
+        public string PathAndQueryAlvo => new Uri(UrlAlvo).PathAndQuery;
+        public string AbsolutePathAlvo => new Uri(UrlAlvo).AbsolutePath;
         public string ReqMethodAtual => HttpContext.Request.Method;
         public string ReqHeadersPreAjuste => JsonConvert.SerializeObject(HttpContext.Request.Headers.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
         public int RespStatusCode => HttpContext.Response.StatusCode;
@@ -84,13 +84,13 @@ namespace MicroProxy.Models
         public string HorasAbreviadas => DataHoras.ToString("t");
         public string HorasCompletas => DataHoras.ToString("T");
 
-        public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos ??= value != null ? [.. value.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))] : null; }
+        public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos ??= value != null ? [.. value.Select(v => v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}")] : null; }
         public string UrlAlvo
         {
             get => _urlAlvo ?? UrlAtual; set
             {
-                _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/');
-                if (PathAtualSubstituto == "" && _urlAlvo.StartsWith("http", StringComparison.InvariantCultureIgnoreCase)) PathAtualSubstituto = new Uri(_urlAlvo).AbsolutePath.TrimEnd('/');
+                _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}");
+                if (PathAtualSubstituto == "" && _urlAlvo.StartsWith("http", StringComparison.InvariantCultureIgnoreCase)) PathAtualSubstituto = new Uri(_urlAlvo).AbsolutePath;
             }
         }
         public bool IgnorarCertificadoAlvo { get => _ignorarCertificadoAlvo ?? false; set => _ignorarCertificadoAlvo ??= value; }
@@ -248,14 +248,16 @@ namespace MicroProxy.Models
                     }
                     else
                     {
+                        bool substituirValores = false;
+
+                        valores = [];
+
                         foreach (var valor in header.Value)
                         {
                             string valorTemp = valor;
 
                             foreach (var headerAdicional in listaHeaders)
                             {
-                                bool substituirValores = false;
-                                valores = [];
 
                                 if (listaHeadersSubstitutos.TryGetValue(headerAdicional.Key, out var valoresHeaderSubs))
                                 {
@@ -305,9 +307,10 @@ namespace MicroProxy.Models
                                 }
 
                                 valores = [.. valores.Append(valorTemp)];
-                                headersOriginais[header.Key] = substituirValores ? valores : [.. headersOriginais[header.Key].Union(valores)];
                             }
                         }
+
+                        headersOriginais[header.Key] = substituirValores ? valores : [.. headersOriginais[header.Key].Union(valores)];
                     }
                 }
 
