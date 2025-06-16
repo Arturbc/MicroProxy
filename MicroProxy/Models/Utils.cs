@@ -363,7 +363,7 @@ namespace MicroProxy.Models
                                 site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync();
                             }
 
-                            if (context.Response.StatusCode < StatusCodes.Status300MultipleChoices || context.Response.StatusCode >= StatusCodes.Status400BadRequest)
+                            if (context.Response.Headers.Location.Count == 0)
                             {
                                 absolutePathUrlOrigemRedirect = null;
 
