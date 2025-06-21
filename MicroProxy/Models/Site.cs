@@ -89,7 +89,8 @@ namespace MicroProxy.Models
         {
             get => _urlAlvo ?? UrlAtual; set
             {
-                _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}");
+                _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/');
+                if (HttpContext != null && HttpContext.Request.GetDisplayUrl().EndsWith('/')) _urlAlvo += '/';
                 if (PathAtualSubstituto == "" && _urlAlvo.StartsWith("http", StringComparison.InvariantCultureIgnoreCase)) PathAtualSubstituto = new Uri(_urlAlvo).AbsolutePath;
             }
         }

@@ -144,7 +144,7 @@ namespace MicroProxy.Models
                         {
                             pathUrlAtual = null;
                             absolutePathUrlOrigemRedirect = null;
-                            context.Response.RedirectPreserveMethod("/", true);
+                            context.Response.RedirectPreserveMethod("/");
                         }
                     }
                     else
@@ -202,7 +202,7 @@ namespace MicroProxy.Models
                     if (pathUrlAtualTemp != pathUrlCliente)
                     {
                         absolutePathUrlOrigemRedirect = pathUrlCliente;
-                        context.Response.RedirectPreserveMethod(pathUrlAtualTemp, true);
+                        context.Response.RedirectPreserveMethod(pathUrlAtualTemp);
                     }
                     else
                     {
@@ -221,7 +221,7 @@ namespace MicroProxy.Models
                                             && (CharReservadosUrlRegex().Replace(pathUrlAtualTemp, "/").StartsWith(CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/"), StringComparison.InvariantCultureIgnoreCase)
                                                 || CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlAlvo, "/"), StringComparison.InvariantCultureIgnoreCase)))))
                                 {
-                                    pathUrlAlvo = $"{pathUrlAlvo}{pathUrlCliente}";
+                                    pathUrlAlvo = $"{pathUrlAlvo.TrimEnd('/')}{pathUrlCliente}";
                                 }
                                 else
                                 {
@@ -240,7 +240,7 @@ namespace MicroProxy.Models
                     if (context.Response.StatusCode == StatusCodes.Status200OK)
                     {
                         site.InicializarExecutavel();
-                        pathUrlAlvo ??= pathUrlCliente;
+                        pathUrlAlvo ??= site.PathAtualSubstituto.TrimEnd('/') + pathUrlCliente;
 
                         if (tratarUrl && pathUrlAtual != null && melhorBind != null && melhorBind.Segments.Length > 1
                             && pathUrlAlvo.StartsWith(melhorBind.AbsolutePath))
@@ -248,7 +248,7 @@ namespace MicroProxy.Models
                             pathUrlAlvo = ('/' + string.Join('/', pathUrlAlvo.TrimStart('/').Split('/')[(melhorBind.Segments.Length - 1)..]));
                         }
 
-                        site.UrlAlvo = $"{site.UrlAlvo}{pathUrlAlvo}";
+                        site.UrlAlvo = $"{site.UrlAlvo.TrimEnd('/')}{pathUrlAlvo}";
                         urlAlvo = new(site.UrlAlvo);
 
                         string pathAbsolutoUrlAtual = request.Path.Value!;
