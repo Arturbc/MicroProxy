@@ -122,11 +122,14 @@ internal partial class Program
             });
         }
 #else
-            if (configuracao.SolicitarCertificadoCliente) { builder.Services.Configure<KestrelServerOptions>(options => options.ConfigureHttpsDefaults(options =>
+        if (configuracao.SolicitarCertificadoCliente)
+        {
+            builder.Services.Configure<KestrelServerOptions>(options => options.ConfigureHttpsDefaults(options =>
             {
                 options.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
                 options.AllowAnyClientCertificate();
-            })); }
+            }));
+        }
 #endif
 
         if (codecConteudo != null && string.Join(',', codecConteudo).Length > 0)
