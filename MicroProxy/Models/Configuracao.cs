@@ -10,7 +10,9 @@
         public Dictionary<string, Log>? Logs { get; protected set; }
         public uint MinutosValidadeCookie { get; protected set; }
         public string[] Ips { get; protected set; } = null!;
+        public string[] IpsBloqueados { get; protected set; } = null!;
         public ushort PortaHttpRedirect { get; protected set; }
+        public bool SolicitarCertificadoCliente { get; protected set; }
         public string? CertificadoPrivado { get; protected set; }
         public string? CertificadoPrivadoChave { get; protected set; }
         public string? CertificadoPrivadoSenha { get; protected set; }
@@ -34,7 +36,9 @@
             Logs = ConfigurationRoot.GetSection("Logs").Get<Dictionary<string, Log>>();
             MinutosValidadeCookie = ConfigurationRoot.GetValue<uint>("MinutosValidadeCookie");
             Ips = ConfigurationRoot.GetSection("IPs").Get<string[]>() ?? [];
+            IpsBloqueados = ConfigurationRoot.GetSection("IPsBloqueados").Get<string[]>() ?? [];
             PortaHttpRedirect = ConfigurationRoot.GetValue<ushort?>("PortaHttpRedirect") ?? 0;
+            SolicitarCertificadoCliente = ConfigurationRoot.GetValue<bool>("SolicitarCertificadoCliente");
             CertificadoPrivado = ConfigurationRoot.GetValue<string>("CertificadoPrivado")?.Trim();
             CertificadoPrivadoChave = ConfigurationRoot.GetValue<string>("CertificadoPrivadoChave")?.Trim();
             CertificadoPrivadoSenha = ConfigurationRoot.GetValue<string>("CertificadoPrivadoSenha");
@@ -48,8 +52,8 @@
             AllowMethods = ConfigurationRoot.GetSection("Cors:AllowMethods").Get<string[]>() ?? [];
 
             if (AllowOrigins.Length == 0) AllowOrigins = ["*"];
-            if (AllowHeaders.Length == 0) AllowOrigins = ["*"];
-            if (AllowMethods.Length == 0) AllowOrigins = ["*"];
+            if (AllowHeaders.Length == 0) AllowHeaders = ["*"];
+            if (AllowMethods.Length == 0) AllowMethods = ["*"];
             if (CertificadoPrivadoChave == "") CertificadoPrivadoChave = null;
             if (CertificadoPrivadoSenha == "") CertificadoPrivadoSenha = null;
         }

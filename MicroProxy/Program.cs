@@ -3,11 +3,14 @@ using Microsoft.AspNetCore.ResponseCompression;
 using System.IO.Compression;
 using static MicroProxy.Models.Configuracao;
 using static MicroProxy.Models.Site;
+using Microsoft.AspNetCore.Server.Kestrel.Https;
 
 #if !DEBUG
 using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
 using System.Net;
+#else
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 #endif
 
 internal partial class Program
@@ -33,14 +36,8 @@ internal partial class Program
         {
             options.AddDefaultPolicy(builder =>
             {
-                builder.WithOrigins(configuracao.AllowOrigins)
-                    .WithHeaders(configuracao.AllowHeaders)
-                    .WithMethods(configuracao.AllowMethods);
-
-                if (!configuracao.AllowOrigins.Contains("*"))
-                {
-                    builder.AllowCredentials();
-                }
+                builder.WithOrigins(configuracao.AllowOrigins).WithHeaders(configuracao.AllowHeaders).WithMethods(configuracao.AllowMethods);
+                if (!configuracao.AllowOrigins.Contains("*")) { builder.AllowCredentials(); }
             });
         });
 
@@ -64,23 +61,24 @@ internal partial class Program
                     {
                         if (string.IsNullOrEmpty(configuracao.CertificadoPrivado) || portaHttp != 0)
                         {
-                            if (string.IsNullOrEmpty(configuracao.CertificadoPrivado) && (ipPorta.Groups["porta"].Success || portaHttp == 0))
-                            {
-                                portaHttp = porta;
-                            }
-
+                            if (string.IsNullOrEmpty(configuracao.CertificadoPrivado) && (ipPorta.Groups["porta"].Success || portaHttp == 0)) { portaHttp = porta; }
                             serverOptions.Listen(ip, portaHttp);
                         }
                     }
 
-                    if (configuracao.CertificadoPrivado != null && configuracao.CertificadoPrivado != "")
+                    if (!string.IsNullOrEmpty(configuracao.CertificadoPrivado))
                     {
-                        https = true;
-
-                        if (porta == 80 && !ipPorta.Groups["porta"].Success)
+                        if (!https && configuracao.SolicitarCertificadoCliente)
                         {
-                            porta = 443;
+                            serverOptions.ConfigureHttpsDefaults(options =>
+                            {
+                                options.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
+                                options.AllowAnyClientCertificate();
+                            });
                         }
+
+                        https = true;
+                        if (porta == 80 && !ipPorta.Groups["porta"].Success) { porta = 443; }
 
                         X509Certificate2? certificado = null;
                         string pathArquivoCertificado = ProcessarPath(configuracao.CertificadoPrivado);
@@ -89,10 +87,7 @@ internal partial class Program
                         string? chave = ProcessarPath(configuracao.CertificadoPrivadoChave ?? "");
                         string? senha = configuracao.CertificadoPrivadoSenha;
 
-                        if (certificadoArquivo)
-                        {
-                            certificado = new(pathArquivoCertificado, senha);
-                        }
+                        if (certificadoArquivo) { certificado = new(pathArquivoCertificado, senha); }
                         else
                         {
                             using X509Store x509StoreUsuario = new(StoreLocation.CurrentUser);
@@ -105,17 +100,8 @@ internal partial class Program
                                 .Where(c => c.Extensions.Any(e => e is X509EnhancedKeyUsageExtension ekue && ekue.EnhancedKeyUsages["1.3.6.1.5.5.7.3.1"] != null))
                                 .OrderByDescending(c => c.NotAfter).ThenByDescending(c => c.NotBefore);
 
-                            try
-                            {
-                                certificado = certificados.FirstOrDefault(c => c.Subject == certificadoPrivado)
-                                    ?? certificados.First(c => c.Subject.Contains(certificadoPrivado));
-                            }
-                            catch (InvalidOperationException ex)
-                            {
-                                var e = ex;
-
-                                throw new($"Arquivo ou caminho de certificado \"{certificadoPrivado}\" inválido!", e);
-                            }
+                            try { certificado = certificados.FirstOrDefault(c => c.Subject == certificadoPrivado) ?? certificados.First(c => c.Subject.Contains(certificadoPrivado)); }
+                            catch (InvalidOperationException ex) { var e = ex; throw new($"Arquivo ou caminho de certificado \"{certificadoPrivado}\" inválido!", e); }
 
                             if (mensagensLog == null)
                             {
@@ -128,19 +114,19 @@ internal partial class Program
                             x509StorePC.Close();
                         }
 
-                        if (!certificado.HasPrivateKey && chave != null)
-                        {
-                            certificado = certificado.CopyWithPrivateKey(Utils.CreateRsaFromPem(chave, senha));
-                        }
+                        if (!certificado.HasPrivateKey && chave != null) { certificado = certificado.CopyWithPrivateKey(Utils.CreateRsaFromPem(chave, senha)); }
 
-                        serverOptions.Listen(ip, porta, listenOptions =>
-                        {
-                            listenOptions.UseHttps(certificado);
-                        });
+                        serverOptions.Listen(ip, porta, listenOptions => listenOptions.UseHttps(certificado));
                     }
                 }
             });
         }
+#else
+            if (configuracao.SolicitarCertificadoCliente) { builder.Services.Configure<KestrelServerOptions>(options => options.ConfigureHttpsDefaults(options =>
+            {
+                options.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
+                options.AllowAnyClientCertificate();
+            })); }
 #endif
 
         if (codecConteudo != null && string.Join(',', codecConteudo).Length > 0)

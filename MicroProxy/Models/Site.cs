@@ -29,8 +29,8 @@ namespace MicroProxy.Models
 
         public Exception? Exception { get; set; } = null;
         private static HttpContext HttpContext => Utils.HttpContextAccessor.HttpContext!;
-        public string IpLocal => (HttpContext.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
-        public string IpRemoto => (HttpContext.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
+        public static string IpLocal => (HttpContext.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
+        public static string IpRemoto => (HttpContext.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
         public string? IpRemotoFw { get; set; } = null;
         public string? ReqHeaders { get; set; } = null;
         public string? ReqBody { get; set; } = null;
