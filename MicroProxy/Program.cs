@@ -38,7 +38,6 @@ builder.Services.AddCors(options =>
 });
 
 #if !DEBUG
-string[]? mensagensLog = null;
 https = false;
 
 foreach (string ipStr in configuracao.Ips)
@@ -75,43 +74,8 @@ foreach (string ipStr in configuracao.Ips)
 
                 https = true;
                 if (porta == 80 && !ipPorta.Groups["porta"].Success) { porta = 443; }
-
-                X509Certificate2? certificado = null;
-                string pathArquivoCertificado = ProcessarPath(configuracao.CertificadoPrivado);
-                bool certificadoArquivo = File.Exists(pathArquivoCertificado);
-                string certificadoPrivado = configuracao.CertificadoPrivado;
-                string? chave = ProcessarPath(configuracao.CertificadoPrivadoChave ?? "");
-                string? senha = configuracao.CertificadoPrivadoSenha;
-
-                if (certificadoArquivo) { certificado = new(pathArquivoCertificado, senha); }
-                else
-                {
-                    using X509Store x509StoreUsuario = new(StoreLocation.CurrentUser);
-                    using X509Store x509StorePC = new(StoreLocation.LocalMachine);
-
-                    x509StoreUsuario.Open(OpenFlags.ReadOnly);
-                    x509StorePC.Open(OpenFlags.ReadOnly);
-
-                    var certificados = x509StoreUsuario.Certificates.Union(x509StorePC.Certificates)
-                        .Where(c => c.Extensions.Any(e => e is X509EnhancedKeyUsageExtension ekue && ekue.EnhancedKeyUsages["1.3.6.1.5.5.7.3.1"] != null))
-                        .OrderByDescending(c => c.NotAfter).ThenByDescending(c => c.NotBefore);
-
-                    try { certificado = certificados.FirstOrDefault(c => c.Subject == certificadoPrivado) ?? certificados.First(c => c.Subject.Contains(certificadoPrivado)); }
-                    catch (InvalidOperationException ex) { var e = ex; throw new($"Arquivo ou caminho de certificado \"{certificadoPrivado}\" inválido!", e); }
-
-                    if (mensagensLog == null)
-                    {
-                        mensagensLog = [.. certificados.Select(c =>  $"{(c.Subject == certificado.Subject ? "(" : "")}Path/Destinatário " +
-                                    $"\"{c.Subject}\" - Valido de {c.NotBefore} até {c.NotAfter}{(c.Subject == certificado.Subject ? ")" : "")}")];
-                        ExibirLog(mensagensLog, "Certificados de validação de servidor disponíveis:", "; ");
-                    }
-
-                    x509StoreUsuario.Close();
-                    x509StorePC.Close();
-                }
-
-                if (!certificado.HasPrivateKey && chave != null) { certificado = certificado.CopyWithPrivateKey(Utils.CreateRsaFromPem(chave, senha)); }
-
+                X509Certificate2? certificado = Utils.ObterCertificado(configuracao.CertificadoPrivado, configuracao.CertificadoPrivadoSenha, configuracao.CertificadoPrivadoChave
+                    , "1.3.6.1.5.5.7.3.1");
                 serverOptions.Listen(ip, porta, listenOptions => listenOptions.UseHttps(certificado));
             }
         }

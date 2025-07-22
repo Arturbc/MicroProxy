@@ -7,6 +7,7 @@ using Newtonsoft.Json;
 using System.IO.Compression;
 using System.Net.Mime;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
 using static MicroProxy.Models.Configuracao;
 
@@ -29,6 +30,43 @@ namespace MicroProxy.Models
         {
             get => Sessao?.GetObjectFromJson<string>(PATH_SITE_ORIGEM_REDIRECT);
             private set { if (value != null) Sessao?.SetObjectAsJson(PATH_SITE_ORIGEM_REDIRECT, value); else Sessao?.Remove(PATH_SITE_ORIGEM_REDIRECT); }
+        }
+
+        public static X509Certificate2 ObterCertificado(string path, string? senha = null, string? pathChave = null, string? eku = null)
+        {
+            X509Certificate2? certificado = null;
+            string pathArquivoCertificado = Site.ProcessarPath(path);
+            bool certificadoArquivo = File.Exists(pathArquivoCertificado);
+            string certificadoPrivado = path;
+            string? chave = Site.ProcessarPath(pathChave ?? "");
+
+            if (certificadoArquivo) { certificado = new(pathArquivoCertificado, senha); }
+            else
+            {
+                using X509Store x509StoreUsuario = new(StoreLocation.CurrentUser);
+                using X509Store x509StorePC = new(StoreLocation.LocalMachine);
+
+                x509StoreUsuario.Open(OpenFlags.ReadOnly);
+                x509StorePC.Open(OpenFlags.ReadOnly);
+
+                var certificados = x509StoreUsuario.Certificates.Union(x509StorePC.Certificates)
+                    .Where(c => c.Extensions.Any(e => e is X509EnhancedKeyUsageExtension ekue && (eku == null || ekue.EnhancedKeyUsages[eku] != null)))
+                    .OrderByDescending(c => c.NotAfter).ThenByDescending(c => c.NotBefore);
+
+                try { certificado = certificados.FirstOrDefault(c => c.Subject == certificadoPrivado) ?? certificados.First(c => c.Subject.Contains(certificadoPrivado)); }
+                catch (InvalidOperationException ex) { var e = ex; throw new($"Arquivo ou caminho de certificado \"{certificadoPrivado}\" inválido!", e); }
+
+                string[] mensagensLog = [.. certificados.Select(c =>  $"{(c.Subject == certificado.Subject ? "(" : "")}Path/Destinatário " +
+                                         $"\"{c.Subject}\" - Valido de {c.NotBefore} até {c.NotAfter}{(c.Subject == certificado.Subject ? ")" : "")}")];
+
+                Site.ExibirLog(mensagensLog, "Certificados de validação de servidor disponíveis:", "; ");
+                x509StoreUsuario.Close();
+                x509StorePC.Close();
+            }
+
+            if (!certificado.HasPrivateKey && chave != null) { certificado = certificado.CopyWithPrivateKey(CreateRsaFromPem(chave, senha)); }
+
+            return certificado;
         }
 
         public static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
@@ -267,6 +305,15 @@ namespace MicroProxy.Models
                             {
                                 clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
                                 clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;
+                            }
+
+                            if (context.Connection.ClientCertificate != null)
+                            {
+                                var certificado = ObterCertificado(context.Connection.ClientCertificate.Subject);
+
+                                clientHandler.ClientCertificates.Add(certificado);
+                                clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
+                                clientHandler.SslProtocols = System.Security.Authentication.SslProtocols.Tls12;
                             }
 
                             using HttpClient httpClient = new(clientHandler);
