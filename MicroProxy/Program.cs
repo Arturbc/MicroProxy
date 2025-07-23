@@ -75,7 +75,7 @@ foreach (string ipStr in configuracao.Ips)
                 https = true;
                 if (porta == 80 && !ipPorta.Groups["porta"].Success) { porta = 443; }
                 X509Certificate2? certificado = Utils.ObterCertificado(configuracao.CertificadoPrivado, configuracao.CertificadoPrivadoSenha, configuracao.CertificadoPrivadoChave
-                    , "1.3.6.1.5.5.7.3.1");
+                    , Utils.CertificadoEKUOID.Servidor);
                 serverOptions.Listen(ip, porta, listenOptions => listenOptions.UseHttps(certificado));
             }
         }

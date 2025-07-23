@@ -15,6 +15,19 @@ namespace MicroProxy.Models
 {
     public static partial class Utils
     {
+        public readonly struct CertificadoEKUOID
+        {
+            public const string Cliente = "1.3.6.1.5.5.7.3.2";
+            public const string Servidor = "1.3.6.1.5.5.7.3.1";
+
+            public static string? ToString(string ekuoid)
+            {
+                foreach (var item in typeof(CertificadoEKUOID).GetFields())
+                { if (item.GetRawConstantValue() is string valorItem && valorItem.Equals(ekuoid, StringComparison.OrdinalIgnoreCase)) { return item.Name; } }
+
+                return null;
+            }
+        }
         private static string[] HeadersProibidos => ["Transfer-Encoding"];
         private static string[] HeadersProibidosReq => [];
         private static string[] HeadersProibidosResp => [];
