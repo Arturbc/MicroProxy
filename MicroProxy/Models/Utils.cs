@@ -32,7 +32,7 @@ namespace MicroProxy.Models
             private set { if (value != null) Sessao?.SetObjectAsJson(PATH_SITE_ORIGEM_REDIRECT, value); else Sessao?.Remove(PATH_SITE_ORIGEM_REDIRECT); }
         }
 
-        public static X509Certificate2 ObterCertificado(string path, string? senha = null, string? pathChave = null, string? eku = null)
+        public static X509Certificate2 ObterCertificado(string path, string? senha = null, string? pathChave = null, string? ekuoid = null)
         {
             X509Certificate2? certificado = null;
             string pathArquivoCertificado = Site.ProcessarPath(path);
@@ -49,9 +49,10 @@ namespace MicroProxy.Models
                 x509StoreUsuario.Open(OpenFlags.ReadOnly);
                 x509StorePC.Open(OpenFlags.ReadOnly);
 
+                var agora = DateTime.Now;
                 var certificados = x509StoreUsuario.Certificates.Union(x509StorePC.Certificates)
-                    .Where(c => c.Extensions.Any(e => e is X509EnhancedKeyUsageExtension ekue && (eku == null || ekue.EnhancedKeyUsages[eku] != null)))
-                    .OrderByDescending(c => c.NotAfter).ThenByDescending(c => c.NotBefore);
+                    .Where(c => c.Extensions.Any(e => e is X509EnhancedKeyUsageExtension ekue && (ekuoid == null || ekue.EnhancedKeyUsages[ekuoid] != null)))
+                    .OrderByDescending(c => c.NotAfter >= agora).ThenByDescending(c => c.NotBefore <= agora).ThenByDescending(c => c.NotAfter).ThenByDescending(c => c.NotBefore);
 
                 try { certificado = certificados.FirstOrDefault(c => c.Subject == certificadoPrivado) ?? certificados.First(c => c.Subject.Contains(certificadoPrivado)); }
                 catch (InvalidOperationException ex) { var e = ex; throw new($"Arquivo ou caminho de certificado \"{certificadoPrivado}\" inválido!", e); }
