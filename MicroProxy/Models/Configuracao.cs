@@ -47,7 +47,7 @@
             TratamentoErroInterno = ConfigurationRoot.GetValue<string>("TratamentoErroInterno");
             ExtensoesUrlNaoRecurso = ConfigurationRoot.GetSection("ExtensoesUrlNaoRecurso").Get<string[]>() ?? [];
             Sites = ConfigurationRoot.GetSection("Sites").Get<Site[]>()!;
-            AllowOrigins = ConfigurationRoot.GetSection("Cors:AllowHosts").Get<string[]>() ?? [];
+            AllowOrigins = ConfigurationRoot.GetSection("Cors:AllowOrigins").Get<string[]>() ?? [];
             AllowHeaders = ConfigurationRoot.GetSection("Cors:AllowHeaders").Get<string[]>() ?? [];
             AllowMethods = ConfigurationRoot.GetSection("Cors:AllowMethods").Get<string[]>() ?? [];
 
