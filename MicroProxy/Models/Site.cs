@@ -19,6 +19,7 @@ namespace MicroProxy.Models
         private Dictionary<string, string[]>? _requestHeadersAdicionais = null;
         private Dictionary<string, string[]>? _responseHeadersAdicionais = null;
         private int? _bufferResp;
+        private int? _segundosTempoMax;
         private bool? _usarProxy;
         private string? _exePath = null;
         private string? _exeArgumentos = null!;
@@ -99,6 +100,7 @@ namespace MicroProxy.Models
         public Dictionary<string, string[]>? RequestHeadersAdicionais { get => _requestHeadersAdicionais; set => _requestHeadersAdicionais ??= value; }
         public Dictionary<string, string[]>? ResponseHeadersAdicionais { get => _responseHeadersAdicionais; set => _responseHeadersAdicionais ??= value; }
         public int BufferResp { get => _bufferResp ?? 0; set => _bufferResp = _bufferResp == null ? value : _bufferResp; }
+        public int SegundosTempoMax { get => _segundosTempoMax ?? 0; set => _segundosTempoMax = _segundosTempoMax == null ? value : _segundosTempoMax; }
         public bool UsarProxy { get => _usarProxy ?? false; set => _usarProxy = _usarProxy == null ? value : _usarProxy; }
         public string? ExePath { get => _exePath; set => _exePath ??= value != null ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePath; }
         public string? ExeArgumentos { get => _exeArgumentos; set => _exeArgumentos ??= value != null ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exeArgumentos; }

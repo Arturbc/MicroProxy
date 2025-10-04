@@ -331,6 +331,7 @@ namespace MicroProxy.Models
                             }
 
                             using HttpClient httpClient = new(clientHandler);
+                            if (site.SegundosTempoMax > 0) { httpClient.Timeout = TimeSpan.FromSeconds(site.SegundosTempoMax); }
                             using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead);
                             using HttpContent content = response.Content;
                             Dictionary<string, string[]> headersResposta = response.Headers
