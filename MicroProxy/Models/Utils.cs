@@ -53,7 +53,7 @@ namespace MicroProxy.Models
             string certificadoPrivado = path;
             string? chave = Site.ProcessarPath(pathChave ?? "");
 
-            if (certificadoArquivo) { certificado = new(pathArquivoCertificado, senha); }
+            if (certificadoArquivo) { certificado = X509CertificateLoader.LoadPkcs12FromFile(pathArquivoCertificado, senha); }
             else
             {
                 using X509Store x509StoreUsuario = new(StoreLocation.CurrentUser);
@@ -121,7 +121,7 @@ namespace MicroProxy.Models
 
                     sites = [.. configuracao.Sites.Where(s =>
                     {
-                        if (s.BindUrls == null || s.BindUrls.Length == 0) return true;
+                        if (s.BindUrls == null) { return true; }
 
                         return s.BindUrls.Any(b =>
                         {

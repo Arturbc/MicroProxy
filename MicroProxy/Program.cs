@@ -1,17 +1,13 @@
 using MicroProxy.Models;
 using Microsoft.AspNetCore.ResponseCompression;
-using System.IO.Compression;
-using static MicroProxy.Models.Configuracao;
-using static MicroProxy.Models.Site;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
-
-#if !DEBUG
+using System.IO.Compression;
+using System.Net;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
-using System.Net;
-#else
-using Microsoft.AspNetCore.Server.Kestrel.Core;
-#endif
+using static MicroProxy.Models.Configuracao;
+using static MicroProxy.Models.Site;
 
 Configuracao configuracao = new();
 string[]? codecConteudo = configuracao.CompressionResponse?.Split(',', StringSplitOptions.TrimEntries);
@@ -37,52 +33,45 @@ builder.Services.AddCors(options =>
     });
 });
 
-#if !DEBUG
 https = false;
 
-foreach (string ipStr in configuracao.Ips)
+if (!builder.Environment.IsDevelopment())
 {
-    builder.WebHost.ConfigureKestrel((context, serverOptions) =>
+    foreach (string ipStr in configuracao.Ips)
     {
-        var ipPorta = IpPortaRegex().Match(ipStr);
-
-        if (ipPorta.Success)
+        builder.WebHost.ConfigureKestrel((context, serverOptions) =>
         {
-            IPAddress ip = IPAddress.Parse(ipPorta.Groups["ipv4"].Success ? ipPorta.Groups["ipv4"].Value : ipPorta.Groups["ipv6"].Value);
-            var portaHttp = configuracao.PortaHttpRedirect;
-            ushort porta = ushort.Parse(ipPorta.Groups["porta"].Success ? ipPorta.Groups["porta"].Value : "80");
+            var ipPorta = IpPortaRegex().Match(ipStr);
 
-            if (!https)
+            if (ipPorta.Success)
             {
-                if (string.IsNullOrEmpty(configuracao.CertificadoPrivado) || portaHttp != 0)
-                {
-                    if (string.IsNullOrEmpty(configuracao.CertificadoPrivado) && (ipPorta.Groups["porta"].Success || portaHttp == 0)) { portaHttp = porta; }
-                    serverOptions.Listen(ip, portaHttp);
-                }
-            }
+                IPAddress ip = IPAddress.Parse(ipPorta.Groups["ipv4"].Success ? ipPorta.Groups["ipv4"].Value : ipPorta.Groups["ipv6"].Value);
+                var portaHttp = configuracao.PortaHttp;
+                ushort porta = ushort.Parse(ipPorta.Groups["porta"].Success ? ipPorta.Groups["porta"].Value : "80");
 
-            if (!string.IsNullOrEmpty(configuracao.CertificadoPrivado))
-            {
-                if (!https && configuracao.SolicitarCertificadoCliente)
+                if (!https)
                 {
-                    serverOptions.ConfigureHttpsDefaults(options =>
+                    if (string.IsNullOrEmpty(configuracao.CertificadoPrivado) || portaHttp != 0)
                     {
-                        options.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
-                        options.AllowAnyClientCertificate();
-                    });
+                        if (string.IsNullOrEmpty(configuracao.CertificadoPrivado) && (ipPorta.Groups["porta"].Success || portaHttp == 0)) { portaHttp = porta; }
+                        serverOptions.Listen(ip, portaHttp);
+                    }
                 }
 
-                https = true;
-                if (porta == 80 && !ipPorta.Groups["porta"].Success) { porta = 443; }
-                X509Certificate2? certificado = Utils.ObterCertificado(configuracao.CertificadoPrivado, configuracao.CertificadoPrivadoSenha, configuracao.CertificadoPrivadoChave
-                    , Utils.CertificadoEKUOID.Servidor);
-                serverOptions.Listen(ip, porta, listenOptions => listenOptions.UseHttps(certificado));
+                if (!string.IsNullOrEmpty(configuracao.CertificadoPrivado))
+                {
+                    https = true;
+                    if (porta == 80 && !ipPorta.Groups["porta"].Success) { porta = 443; }
+                    X509Certificate2? certificado = Utils.ObterCertificado(configuracao.CertificadoPrivado, configuracao.CertificadoPrivadoSenha, configuracao.CertificadoPrivadoChave
+                        , Utils.CertificadoEKUOID.Servidor);
+                    serverOptions.Listen(ip, porta, listenOptions => listenOptions.UseHttps(certificado));
+                }
             }
-        }
-    });
+        });
+    }
 }
-#else
-if (configuracao.SolicitarCertificadoCliente)
+
+if (configuracao.SolicitarCertificadoCliente && (https || builder.Environment.IsDevelopment()))
 {
     builder.Services.Configure<KestrelServerOptions>(options => options.ConfigureHttpsDefaults(options =>
     {
@@ -90,7 +79,6 @@ if (configuracao.SolicitarCertificadoCliente)
         options.AllowAnyClientCertificate();
     }));
 }
-#endif
 
 if (codecConteudo != null && string.Join(',', codecConteudo).Length > 0)
 {
@@ -125,8 +113,7 @@ var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 lifetime.ApplicationStopping.Register(OnShutdown);
 
 // Configure the HTTP request pipeline.
-if (https) { app.UseHttpsRedirection(); }
-
+if (https && configuracao.RedirectPortaHttp) { app.UseHttpsRedirection(); }
 if (codecConteudo != null && string.Join(',', codecConteudo).Length > 0) { app.UseResponseCompression(); }
 
 app.UseSession();
@@ -141,10 +128,8 @@ foreach (var site in configuracao.Sites.Where(s => s.ExePath != null && s.ExePat
 
 await app.RunAsync();
 
-#if !DEBUG
 internal partial class Program
 {
     [GeneratedRegex(@"(?:(?:(?<ipv4>(?:\d{1,3}\.){3}\d{1,3}))|(?:(?:\[(?=[^]]+\]:))?(?<ipv6>(?:(?:\w{1,4}:){7}\w{1,4})|(?:(?:\w{1,4}:){1,6}:(?:\w{1,4})?)|(?:(?:\w{1,4})?:(?::\w{1,4}){1,6})|(?:::))(?:(?<=\[[^]]+)\](?=:))?))(?::(?<porta>\d{1,5}))?")]
     private static partial Regex IpPortaRegex();
 }
-#endif

@@ -85,7 +85,7 @@ namespace MicroProxy.Models
         public string HorasAbreviadas => DataHoras.ToString("t");
         public string HorasCompletas => DataHoras.ToString("T");
 
-        public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos ??= value != null ? [.. value.Select(v => v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}")] : null; }
+        public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos ??= value != null && value.Length != 0 ? [.. value.Select(v => v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}")] : null; }
         public string UrlAlvo
         {
             get => _urlAlvo ?? UrlAtual; set
@@ -102,9 +102,9 @@ namespace MicroProxy.Models
         public int BufferResp { get => _bufferResp ?? 0; set => _bufferResp = _bufferResp == null ? value : _bufferResp; }
         public int SegundosTempoMax { get => _segundosTempoMax ?? 0; set => _segundosTempoMax = _segundosTempoMax == null ? value : _segundosTempoMax; }
         public bool UsarProxy { get => _usarProxy ?? false; set => _usarProxy = _usarProxy == null ? value : _usarProxy; }
-        public string? ExePath { get => _exePath; set => _exePath ??= value != null ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePath; }
-        public string? ExeArgumentos { get => _exeArgumentos; set => _exeArgumentos ??= value != null ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exeArgumentos; }
-        public string? ExePathDiretorio { get => _exePathDiretorio; set => _exePathDiretorio ??= value != null ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePathDiretorio; }
+        public string? ExePath { get => _exePath; set => _exePath ??= !string.IsNullOrEmpty(value) ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePath; }
+        public string? ExeArgumentos { get => _exeArgumentos; set => _exeArgumentos ??= !string.IsNullOrEmpty(value) ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exeArgumentos; }
+        public string? ExePathDiretorio { get => _exePathDiretorio; set => _exePathDiretorio ??= !string.IsNullOrEmpty(value) ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePathDiretorio; }
         public bool JanelaVisivel { get => _janelaVisivel ?? false; set => _janelaVisivel ??= value; }
         public bool AutoExec { get => _autoExec ?? false; set => _autoExec ??= value; }
         public bool AutoFechar { get => _autoFechar ?? !JanelaVisivel; set => _autoFechar ??= value; }
