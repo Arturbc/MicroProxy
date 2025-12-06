@@ -278,9 +278,10 @@ namespace MicroProxy.Models
                                     .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
                                 .ToDictionary();
 
-                            if (request.Method != HttpMethods.Get)
+                            if (request.Body.CanRead)
                             {
                                 request.EnableBuffering();
+                                if (!request.Headers.ContentType.Contains(MediaTypeNames.Application.Octet)) { site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync(); request.Body.Seek(0, SeekOrigin.Begin); }
                                 requestMessage.Content = new StreamContent(request.Body);
 
                                 foreach (var item in requestMessage.Content.Headers.GetType().GetProperties()) { propsHeaders = [.. propsHeaders.Append(item.Name)]; }
@@ -346,7 +347,7 @@ namespace MicroProxy.Models
                             foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
                             { if (!context.Response.Headers.TryAdd(header.Key, header.Value)) { context.Response.Headers.Append(header.Key, header.Value); } }
 
-                            if (request.Method != HttpMethods.Get) { request.Body.Seek(0, SeekOrigin.Begin); site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync(); }
+                            if (request.Body.CanRead && request.Headers.ContentType.Contains(MediaTypeNames.Application.Octet)) { request.Body.Seek(0, SeekOrigin.Begin); site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync(); }
 
                             if (context.Response.Headers.Location.Count == 0)
                             {
