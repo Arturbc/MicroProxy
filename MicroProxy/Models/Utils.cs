@@ -94,12 +94,9 @@ namespace MicroProxy.Models
             try
             {
                 string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
-                string? ipRemoto = null;
+                var ipRemotoFw = Site.IpRemotoFw;
 
-                foreach (string header in headersIpFw) { if (!string.IsNullOrEmpty(request.Headers[header])) { ipRemoto = request.Headers[header]; break; } }
-                ipRemoto ??= Site.IpRemoto;
-
-                if (configuracao.IpsBloqueados.Contains(ipRemoto))
+                if (configuracao.IpsBloqueados.Contains(ipRemotoFw))
                 {
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
                     await Task.FromResult<object?>(null);
@@ -108,7 +105,7 @@ namespace MicroProxy.Models
 
                 var pathUrlAtual = PathUrlAtual;
                 var absolutePathUrlOrigemRedirect = AbsolutePathUrlOrigemRedirect;
-                Uri urlAlvo;
+                Uri urlDestino;
                 Uri? melhorBind = null;
                 string? pathUrlAnterior = pathUrlAtual;
                 Site[] sites = [];
@@ -127,33 +124,33 @@ namespace MicroProxy.Models
                         {
                             string? url = b;
 
-                            urlAlvo = new(url, UriKind.Absolute);
+                            urlDestino = new(url, UriKind.Absolute);
 
                             const int iMin = 1;
-                            int i = Math.Min(urlAtual.Segments.Length, urlAlvo.Segments.Length) + 1;
+                            int i = Math.Min(urlAtual.Segments.Length, urlDestino.Segments.Length) + 1;
 
                             while (--i >= iMin)
                             {
                                 string partePathUrlAtual = pathUrlAtual ?? (i > 1 ? string.Join("", urlAtual.Segments[0..i]).TrimEnd('/') : pathUrlAnterior ?? "");
-                                string pathUrlAlvo = urlAlvo.AbsolutePath.TrimEnd('/');
+                                string pathUrlDestino = urlDestino.AbsolutePath.TrimEnd('/');
 
                                 if (pathUrlAtual != null) { i = iMin; }
-                                if ($"{urlAlvo.Scheme}://{urlAlvo.Authority}{pathUrlAlvo}".Equals($"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}", StringComparison.InvariantCultureIgnoreCase)
+                                if ($"{urlDestino.Scheme}://{urlDestino.Authority}{pathUrlDestino}".Equals($"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}", StringComparison.InvariantCultureIgnoreCase)
                                     || (!configuracao.Sites.Any(ss => ss.BindUrls != null
                                             && ss.BindUrls.Contains($"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}", StringComparer.InvariantCultureIgnoreCase))
-                                        && $"{urlAlvo.Authority}{pathUrlAlvo}".Equals($"{urlAtual.Authority}{partePathUrlAtual}", StringComparison.InvariantCultureIgnoreCase))
+                                        && $"{urlDestino.Authority}{pathUrlDestino}".Equals($"{urlAtual.Authority}{partePathUrlAtual}", StringComparison.InvariantCultureIgnoreCase))
                                     || (!configuracao.Sites.Any(ss => ss.BindUrls != null
                                             && ss.BindUrls.Select(bu => new Uri(bu).Authority).Contains($"{urlAtual.Authority}{partePathUrlAtual}", StringComparer.InvariantCultureIgnoreCase))
-                                        && $"{urlAlvo.Host}{pathUrlAlvo}".Equals($"{urlAtual.Host}{partePathUrlAtual}", StringComparison.InvariantCultureIgnoreCase))
+                                        && $"{urlDestino.Host}{pathUrlDestino}".Equals($"{urlAtual.Host}{partePathUrlAtual}", StringComparison.InvariantCultureIgnoreCase))
                                     )
                                 {
-                                    if (melhorBind == null || pathUrlAlvo.Length > melhorBind.AbsolutePath.Length
-                                        || !CharReservadosUrlRegex().Replace(melhorBind.AbsolutePath, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlAlvo, "/"), StringComparison.InvariantCultureIgnoreCase))
+                                    if (melhorBind == null || pathUrlDestino.Length > melhorBind.AbsolutePath.Length
+                                        || !CharReservadosUrlRegex().Replace(melhorBind.AbsolutePath, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), StringComparison.InvariantCultureIgnoreCase))
                                     {
-                                        melhorBind = urlAlvo;
-                                        if (pathUrlAlvo != "" && pathUrlAnterior != pathUrlAlvo) { pathUrlAtual = melhorBind.AbsolutePath; }
+                                        melhorBind = urlDestino;
+                                        if (pathUrlDestino != "" && pathUrlAnterior != pathUrlDestino) { pathUrlAtual = melhorBind.AbsolutePath; }
                                     }
-                                    if (melhorBind != null && melhorBind.OriginalString.Equals(urlAlvo.OriginalString, StringComparison.InvariantCultureIgnoreCase)){ return true; }
+                                    if (melhorBind != null && melhorBind.OriginalString.Equals(urlDestino.OriginalString, StringComparison.InvariantCultureIgnoreCase)){ return true; }
                                 }
                             }
 
@@ -190,25 +187,23 @@ namespace MicroProxy.Models
                 if (site != null && context.Response.StatusCode == StatusCodes.Status200OK)
                 {
                     string? pathUrlAtualTemp = pathUrlCliente;
-                    string? pathUrlAlvo = null;
+                    string? pathUrlDestino = null;
 
-                    urlAlvo = new(site.UrlAlvo);
-                    site.PathAtualAdicional = urlAlvo.AbsolutePath;
-
-                    if (ipRemoto != Site.IpRemoto) { site.IpRemotoFw = ipRemoto; }
+                    urlDestino = new(site.UrlDestino);
+                    site.PathAtualAdicional = urlDestino.AbsolutePath;
 
                     if (tratarUrl)
                     {
-                        if (urlAlvo.Segments.Length > 1)
+                        if (urlDestino.Segments.Length > 1)
                         {
-                            pathUrlAlvo = urlAlvo.AbsolutePath;
+                            pathUrlDestino = urlDestino.AbsolutePath;
 
                             if (pathUrlAtualTemp != "" && CharReservadosUrlRegex().Replace(pathUrlAtualTemp, "/")
-                                .StartsWith(CharReservadosUrlRegex().Replace(pathUrlAlvo, "/"), StringComparison.InvariantCultureIgnoreCase))
+                                .StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), StringComparison.InvariantCultureIgnoreCase))
                             {
                                 var charsReservadosUrl = CharReservadosUrlRegex().Matches(pathUrlAtualTemp).Where(m => m.Value != "").ToArray();
 
-                                pathUrlAtualTemp = ('/' + string.Join('/', pathUrlAtualTemp.TrimStart('/').Split('/')[(urlAlvo.Segments.Length - 1)..]));
+                                pathUrlAtualTemp = ('/' + string.Join('/', pathUrlAtualTemp.TrimStart('/').Split('/')[(urlDestino.Segments.Length - 1)..]));
 
                                 if (pathUrlAtualTemp == "" || !CharReservadosUrlRegex().IsMatch(pathUrlAtualTemp))
                                 { foreach (var c in charsReservadosUrl) { pathUrlAtualTemp += pathUrlCliente[pathUrlCliente.IndexOf(c.Value)..]; } }
@@ -224,41 +219,41 @@ namespace MicroProxy.Models
                     if (pathUrlAtualTemp != pathUrlCliente) { absolutePathUrlOrigemRedirect = pathUrlCliente; context.Response.RedirectPreserveMethod(pathUrlAtualTemp); }
                     else
                     {
-                        site.UrlAlvo = $"{urlAlvo.Scheme}://{urlAlvo.Authority}";
+                        site.UrlDestino = $"{urlDestino.Scheme}://{urlDestino.Authority}";
 
                         if (tratarUrl)
                         {
                             pathUrlAtualTemp = request.Path;
 
-                            if (pathUrlAlvo != null)
+                            if (pathUrlDestino != null)
                             {
                                 if ((pathUrlAnterior?.Equals(pathUrlAtual, StringComparison.InvariantCultureIgnoreCase) ?? pathUrlAnterior == pathUrlAtual)
                                     && ((absolutePathUrlOrigemRedirect == null
-                                         && CharReservadosUrlRegex().Replace(pathUrlCliente, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlAlvo, "/"), StringComparison.InvariantCultureIgnoreCase))
+                                         && CharReservadosUrlRegex().Replace(pathUrlCliente, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), StringComparison.InvariantCultureIgnoreCase))
                                         || (absolutePathUrlOrigemRedirect != null
                                             && (CharReservadosUrlRegex().Replace(pathUrlAtualTemp, "/").StartsWith(CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/"), StringComparison.InvariantCultureIgnoreCase)
-                                                || CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlAlvo, "/"), StringComparison.InvariantCultureIgnoreCase)))))
-                                { pathUrlAlvo = $"{pathUrlAlvo.TrimEnd('/')}{pathUrlCliente}"; }
-                                else { pathUrlAlvo = null; }
+                                                || CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), StringComparison.InvariantCultureIgnoreCase)))))
+                                { pathUrlDestino = $"{pathUrlDestino.TrimEnd('/')}{pathUrlCliente}"; }
+                                else { pathUrlDestino = null; }
                             }
                             else if (pathUrlAtual != null && pathUrlAnterior != null
                                     && (absolutePathUrlOrigemRedirect == null
                                         || CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/"), StringComparison.InvariantCultureIgnoreCase)))
-                            { pathUrlAlvo = $"{pathUrlAtual}{pathUrlCliente}"; }
+                            { pathUrlDestino = $"{pathUrlAtual}{pathUrlCliente}"; }
                         }
                     }
 
                     if (context.Response.StatusCode == StatusCodes.Status200OK)
                     {
                         site.InicializarExecutavel();
-                        pathUrlAlvo ??= site.PathAtualSubstituto.TrimEnd('/') + pathUrlCliente;
+                        pathUrlDestino ??= site.PathAtualSubstituto.TrimEnd('/') + pathUrlCliente;
 
                         if (tratarUrl && pathUrlAtual != null && melhorBind != null && melhorBind.Segments.Length > 1
-                            && pathUrlAlvo.StartsWith(melhorBind.AbsolutePath))
-                        { pathUrlAlvo = '/' + string.Join('/', pathUrlAlvo.TrimStart('/').Split('/')[(melhorBind.Segments.Length - 1)..]); }
+                            && pathUrlDestino.StartsWith(melhorBind.AbsolutePath))
+                        { pathUrlDestino = '/' + string.Join('/', pathUrlDestino.TrimStart('/').Split('/')[(melhorBind.Segments.Length - 1)..]); }
 
-                        site.UrlAlvo = $"{site.UrlAlvo.TrimEnd('/')}{pathUrlAlvo}";
-                        urlAlvo = new(site.UrlAlvo);
+                        site.UrlDestino = $"{site.UrlDestino.TrimEnd('/')}{pathUrlDestino}";
+                        urlDestino = new(site.UrlDestino);
 
                         string pathAbsolutoUrlAtual = request.Path.Value!;
 
@@ -273,7 +268,7 @@ namespace MicroProxy.Models
                         if (!context.Response.HasStarted)
                         {
                             string[] propsHeaders = [];
-                            using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), site.UrlAlvo);
+                            using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), site.UrlDestino);
                             Dictionary<string, StringValues> headersReq = request.Headers
                                     .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
                                 .ToDictionary();
@@ -306,17 +301,17 @@ namespace MicroProxy.Models
                                 { requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valores); }
                             }
 
-                            if (ipRemoto != null && ipRemoto.Length > 0 && ipRemoto != Site.IpLocal)
+                            if (ipRemotoFw != null && ipRemotoFw.Length > 0 && ipRemotoFw != Site.IpLocal)
                             {
                                 foreach (var header in headersIpFw.Where(h => !requestMessage.Headers.TryGetValues(h, out _)).Reverse())
-                                { requestMessage.Headers.TryAddWithoutValidation(header, ipRemoto); }
+                                { requestMessage.Headers.TryAddWithoutValidation(header, ipRemotoFw); }
                             }
 
                             site.ReqHeaders = JsonConvert.SerializeObject(requestMessage.Headers.NonValidated.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
 
                             using HttpClientHandler clientHandler = new() { AllowAutoRedirect = false, UseProxy = site.UsarProxy };
 
-                            if (site.IgnorarCertificadoAlvo)
+                            if (site.IgnorarCertificadoDestino)
                             {
                                 clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
                                 clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;

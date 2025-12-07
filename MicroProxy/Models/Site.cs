@@ -11,11 +11,14 @@ namespace MicroProxy.Models
     public partial class Site
     {
         private const int MILLISEGUNDO_AGUARDAR_FECHAR = 1000;
+        private static readonly Dictionary<string, List<string>> DicUrlsUsadas = [];
+        private static readonly Lock LockUrlsUsadas = new();
         private static Executavel[] Executaveis = [];
-        private string[]? _bindAlvos = null;
-        private string? _urlAlvo = null;
+        private string[]? _bindDestinos = null;
+        private string[]? _urlsDestinos = null;
+        private string? _urlDestino = null;
         private string[]? _methods = null;
-        private bool? _ignorarCertificadoAlvo = null;
+        private bool? _ignorarCertificadoDestino = null;
         private Dictionary<string, string[]>? _requestHeadersAdicionais = null;
         private Dictionary<string, string[]>? _responseHeadersAdicionais = null;
         private int? _bufferResp;
@@ -28,11 +31,28 @@ namespace MicroProxy.Models
         private bool? _autoExec = null;
         private bool? _autoFechar = null;
 
-        public Exception? Exception { get; set; } = null;
         private static HttpContext HttpContext => Utils.HttpContextAccessor.HttpContext!;
-        public static string IpLocal => (HttpContext.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
-        public static string IpRemoto => (HttpContext.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
-        public string? IpRemotoFw { get; set; } = null;
+        public static string IpLocal => (HttpContext?.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
+        public static string IpRemoto => (HttpContext?.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
+        public static string IpRemotoFw
+        {
+            get
+            {
+                var _ipRemotoFw = IpRemoto;
+                var request = HttpContext?.Request;
+
+                if (request != null)
+                {
+                    string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
+                    foreach (string header in headersIpFw) { if (!string.IsNullOrEmpty(request.Headers[header])) { _ipRemotoFw = request.Headers[header]; break; } }
+                }
+
+                return _ipRemotoFw!;
+            }
+        }
+        public string[] UrlsDestinos
+        { get => _urlsDestinos ?? []; set => _urlsDestinos = [.. value.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))]; }
+        public Exception? Exception { get; set; } = null;
         public string? ReqHeaders { get; set; } = null;
         public string? ReqBody { get; set; } = null;
         public string? RespHeadersPreAjuste { get; set; } = null;
@@ -46,17 +66,17 @@ namespace MicroProxy.Models
         public string PathAtualSubstituto { get; private set; } = "";
         public string PathAtualAdicional { get; set; } = "";
         public string AbsolutePathAtualOrigemRedirect => Utils.AbsolutePathUrlOrigemRedirect ?? "";
-        public string AuthorityAlvo => new Uri(UrlAlvo).Authority;
-        public string HostAlvo => new Uri(UrlAlvo).Host;
-        public string SchemaAlvo => new Uri(UrlAlvo).Scheme;
-        public string HostPortAlvo => new Uri(UrlAlvo).Port.ToString();
-        public string PathAndQueryAlvo => new Uri(UrlAlvo).PathAndQuery;
-        public string AbsolutePathAlvo => new Uri(UrlAlvo).AbsolutePath;
+        public string AuthorityDestino => new Uri(UrlDestino).Authority;
+        public string HostDestino => new Uri(UrlDestino).Host;
+        public string SchemaDestino => new Uri(UrlDestino).Scheme;
+        public string HostPortDestino => new Uri(UrlDestino).Port.ToString();
+        public string PathAndQueryDestino => new Uri(UrlDestino).PathAndQuery;
+        public string AbsolutePathDestino => new Uri(UrlDestino).AbsolutePath;
         public string ReqMethodAtual => HttpContext.Request.Method;
         public string ReqHeadersPreAjuste => JsonConvert.SerializeObject(HttpContext.Request.Headers.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
         public int RespStatusCode => HttpContext.Response.StatusCode;
         public string RespHeaders => JsonConvert.SerializeObject(HttpContext.Response.Headers.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
-        public string UrlAtual => HttpContext.Request.GetDisplayUrl();
+        public string UrlAtual => HttpContext?.Request.GetDisplayUrl()!;
         public string? ExceptionMensagem
         {
             get
@@ -85,17 +105,40 @@ namespace MicroProxy.Models
         public string HorasAbreviadas => DataHoras.ToString("t");
         public string HorasCompletas => DataHoras.ToString("T");
 
-        public string[]? BindUrls { get => _bindAlvos; set => _bindAlvos ??= value != null && value.Length != 0 ? [.. value.Select(v => v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}")] : null; }
-        public string UrlAlvo
+        public string[]? BindUrls { get => _bindDestinos; set => _bindDestinos ??= value != null && value.Length != 0 ? [.. value.Select(v => v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}")] : null; }
+        public string UrlDestino
         {
-            get => _urlAlvo ?? UrlAtual; set
+            get
             {
-                _urlAlvo = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/');
-                if (HttpContext != null && HttpContext.Request.GetDisplayUrl().EndsWith('/')) _urlAlvo += '/';
-                if (PathAtualSubstituto == "" && _urlAlvo.StartsWith("http", StringComparison.InvariantCultureIgnoreCase)) PathAtualSubstituto = new Uri(_urlAlvo).AbsolutePath;
+                if (_urlDestino != null) { return _urlDestino; }
+
+                lock (LockUrlsUsadas)
+                {
+                    if (!DicUrlsUsadas.TryGetValue(IpRemotoFw, out var urls)) { DicUrlsUsadas.Add(IpRemotoFw, urls = []); }
+
+                    _urlDestino = urls.FirstOrDefault(u => UrlsDestinos.Contains(u));
+
+                    if (_urlDestino == null)
+                    {
+                        System.Net.NetworkInformation.Ping ping = new();
+                        _urlDestino = UrlsDestinos.OrderBy(u => DicUrlsUsadas.Values.Count(v => v.Contains(u)))
+                            .ThenBy(u => ping.Send(new Uri(u).Host).RoundtripTime).FirstOrDefault();
+
+                        if (_urlDestino != null) { urls.Add(_urlDestino); }
+                    }
+                }
+
+                return _urlDestino ??= UrlAtual;
+            }
+
+            set
+            {
+                _urlDestino = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/');
+                if (HttpContext != null && HttpContext.Request.GetDisplayUrl().EndsWith('/')) _urlDestino += '/';
+                if (PathAtualSubstituto == "" && _urlDestino.StartsWith("http", StringComparison.InvariantCultureIgnoreCase)) PathAtualSubstituto = new Uri(_urlDestino).AbsolutePath;
             }
         }
-        public bool IgnorarCertificadoAlvo { get => _ignorarCertificadoAlvo ?? false; set => _ignorarCertificadoAlvo ??= value; }
+        public bool IgnorarCertificadoDestino { get => _ignorarCertificadoDestino ?? false; set => _ignorarCertificadoDestino ??= value; }
         public string[] Methods { get => _methods!; set => _methods ??= value ?? ["*"]; }
         public Dictionary<string, string[]>? RequestHeadersAdicionais { get => _requestHeadersAdicionais; set => _requestHeadersAdicionais ??= value; }
         public Dictionary<string, string[]>? ResponseHeadersAdicionais { get => _responseHeadersAdicionais; set => _responseHeadersAdicionais ??= value; }
