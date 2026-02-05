@@ -30,6 +30,7 @@ namespace MicroProxy.Models
         private bool? _janelaVisivel = null;
         private bool? _autoExec = null;
         private bool? _autoFechar = null;
+        private readonly List<string> _urlsDescartadas = [];
 
         private static HttpContext HttpContext => Utils.HttpContextAccessor.HttpContext!;
         public static string IpLocal => (HttpContext?.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
@@ -51,7 +52,7 @@ namespace MicroProxy.Models
             }
         }
         public string[] UrlsDestinos
-        { get => _urlsDestinos ?? []; set => _urlsDestinos = [.. value.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))]; }
+        { get => [.. (_urlsDestinos ?? []).Except(_urlsDescartadas)]; set => _urlsDestinos = [.. value.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))]; }
         public Exception? Exception { get; set; } = null;
         public string? ReqHeaders { get; set; } = null;
         public string? ReqBody { get; set; } = null;
@@ -110,16 +111,18 @@ namespace MicroProxy.Models
         {
             get
             {
-                if (_urlDestino != null) { return _urlDestino; }
+                if (_urlDestino != null && (HttpContext.Response.StatusCode < (int)HttpStatusCode.BadRequest)) { return _urlDestino; }
 
                 lock (LockUrlsUsadas)
                 {
                     if (!DicUrlsUsadas.TryGetValue(IpRemotoFw, out var urls)) { DicUrlsUsadas.Add(IpRemotoFw, urls = []); }
+                    if (_urlDestino != null) { _urlsDescartadas.Add(_urlDestino = UrlsDestinos.First(u => _urlDestino.StartsWith(u))); urls.Remove(_urlDestino); }
 
                     _urlDestino = urls.FirstOrDefault(u => UrlsDestinos.Contains(u));
 
                     if (_urlDestino == null)
                     {
+                        if (HttpContext != null && !HttpContext.Response.HasStarted) { HttpContext.Response.StatusCode = (int)HttpStatusCode.OK; }
                         System.Net.NetworkInformation.Ping ping = new();
                         _urlDestino = UrlsDestinos.OrderBy(u => DicUrlsUsadas.Values.Count(v => v.Contains(u)))
                             .ThenBy(u => ping.Send(new Uri(u).Host).RoundtripTime).FirstOrDefault();

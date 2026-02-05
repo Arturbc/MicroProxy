@@ -5,6 +5,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
 using System.IO.Compression;
+using System.Net;
 using System.Net.Mime;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -186,195 +187,209 @@ namespace MicroProxy.Models
 
                 if (site != null && context.Response.StatusCode == StatusCodes.Status200OK)
                 {
-                    string? pathUrlAtualTemp = pathUrlCliente;
-                    string? pathUrlDestino = null;
-
-                    urlDestino = new(site.UrlDestino);
-                    site.PathAtualAdicional = urlDestino.AbsolutePath;
-
-                    if (tratarUrl)
+                    do
                     {
-                        if (urlDestino.Segments.Length > 1)
-                        {
-                            pathUrlDestino = urlDestino.AbsolutePath;
+                        string? pathUrlAtualTemp = pathUrlCliente;
+                        string? pathUrlDestino = null;
 
-                            if (pathUrlAtualTemp != "" && CharReservadosUrlRegex().Replace(pathUrlAtualTemp, "/")
-                                .StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), StringComparison.InvariantCultureIgnoreCase))
-                            {
-                                var charsReservadosUrl = CharReservadosUrlRegex().Matches(pathUrlAtualTemp).Where(m => m.Value != "").ToArray();
-
-                                pathUrlAtualTemp = ('/' + string.Join('/', pathUrlAtualTemp.TrimStart('/').Split('/')[(urlDestino.Segments.Length - 1)..]));
-
-                                if (pathUrlAtualTemp == "" || !CharReservadosUrlRegex().IsMatch(pathUrlAtualTemp))
-                                { foreach (var c in charsReservadosUrl) { pathUrlAtualTemp += pathUrlCliente[pathUrlCliente.IndexOf(c.Value)..]; } }
-                            }
-                        }
-
-                        if (pathUrlAtual != null && !CharReservadosUrlRegex().Replace(pathUrlAtualTemp, "/")
-                                .StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/"), StringComparison.InvariantCultureIgnoreCase))
-                        { pathUrlAtualTemp = $"{pathUrlAtual}{pathUrlAtualTemp}"; }
-                        else if (!pathUrlAtualTemp.StartsWith('/')) { pathUrlAtualTemp = '/' + pathUrlAtualTemp; }
-                    }
-
-                    if (pathUrlAtualTemp != pathUrlCliente) { absolutePathUrlOrigemRedirect = pathUrlCliente; context.Response.RedirectPreserveMethod(pathUrlAtualTemp); }
-                    else
-                    {
-                        site.UrlDestino = $"{urlDestino.Scheme}://{urlDestino.Authority}";
+                        urlDestino = new(site.UrlDestino);
+                        site.PathAtualAdicional = urlDestino.AbsolutePath;
 
                         if (tratarUrl)
                         {
-                            pathUrlAtualTemp = request.Path;
-
-                            if (pathUrlDestino != null)
+                            if (urlDestino.Segments.Length > 1)
                             {
-                                if ((pathUrlAnterior?.Equals(pathUrlAtual, StringComparison.InvariantCultureIgnoreCase) ?? pathUrlAnterior == pathUrlAtual)
-                                    && ((absolutePathUrlOrigemRedirect == null
-                                         && CharReservadosUrlRegex().Replace(pathUrlCliente, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), StringComparison.InvariantCultureIgnoreCase))
-                                        || (absolutePathUrlOrigemRedirect != null
-                                            && (CharReservadosUrlRegex().Replace(pathUrlAtualTemp, "/").StartsWith(CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/"), StringComparison.InvariantCultureIgnoreCase)
-                                                || CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), StringComparison.InvariantCultureIgnoreCase)))))
-                                { pathUrlDestino = $"{pathUrlDestino.TrimEnd('/')}{pathUrlCliente}"; }
-                                else { pathUrlDestino = null; }
-                            }
-                            else if (pathUrlAtual != null && pathUrlAnterior != null
-                                    && (absolutePathUrlOrigemRedirect == null
-                                        || CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/"), StringComparison.InvariantCultureIgnoreCase)))
-                            { pathUrlDestino = $"{pathUrlAtual}{pathUrlCliente}"; }
-                        }
-                    }
+                                pathUrlDestino = urlDestino.AbsolutePath;
 
-                    if (context.Response.StatusCode == StatusCodes.Status200OK)
-                    {
-                        site.InicializarExecutavel();
-                        pathUrlDestino ??= site.PathAtualSubstituto.TrimEnd('/') + pathUrlCliente;
-
-                        if (tratarUrl && pathUrlAtual != null && melhorBind != null && melhorBind.Segments.Length > 1
-                            && pathUrlDestino.StartsWith(melhorBind.AbsolutePath))
-                        { pathUrlDestino = '/' + string.Join('/', pathUrlDestino.TrimStart('/').Split('/')[(melhorBind.Segments.Length - 1)..]); }
-
-                        site.UrlDestino = $"{site.UrlDestino.TrimEnd('/')}{pathUrlDestino}";
-                        urlDestino = new(site.UrlDestino);
-
-                        string pathAbsolutoUrlAtual = request.Path.Value!;
-
-                        if (request.Method.Equals(HttpMethods.Get, StringComparison.InvariantCultureIgnoreCase) && Path.HasExtension(pathAbsolutoUrlAtual)
-                            && configuracao.ArquivosEstaticos != null && configuracao.ArquivosEstaticos != "")
-                        {
-                            string pathDiretorioArquivo = Site.ProcessarPath(configuracao.ArquivosEstaticos.ProcessarStringSubstituicao(site));
-
-                            site.RespBody = await context.Response.SendFileAsync(site, pathDiretorioArquivo, pathAbsolutoUrlAtual.TrimStart('/'));
-                        }
-
-                        if (!context.Response.HasStarted)
-                        {
-                            string[] propsHeaders = [];
-                            using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), site.UrlDestino);
-                            Dictionary<string, StringValues> headersReq = request.Headers
-                                    .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-                                .ToDictionary();
-
-                            if (request.Body.CanRead)
-                            {
-                                request.EnableBuffering();
-                                if (!request.Headers.ContentType.Contains(MediaTypeNames.Application.Octet)) { site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync(); request.Body.Seek(0, SeekOrigin.Begin); }
-                                requestMessage.Content = new StreamContent(request.Body);
-
-                                foreach (var item in requestMessage.Content.Headers.GetType().GetProperties()) { propsHeaders = [.. propsHeaders.Append(item.Name)]; }
-                            }
-
-                            headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
-
-                            foreach (var header in headersReq.Where(h => h.Value.Count != 0))
-                            {
-                                string[] valores = [];
-
-                                foreach (var valor in header.Value)
+                                if (pathUrlAtualTemp != "" && CharReservadosUrlRegex().Replace(pathUrlAtualTemp, "/")
+                                    .StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), StringComparison.InvariantCultureIgnoreCase))
                                 {
-                                    var valorTemp = valor;
+                                    var charsReservadosUrl = CharReservadosUrlRegex().Matches(pathUrlAtualTemp).Where(m => m.Value != "").ToArray();
 
-                                    if (valorTemp != null) { valorTemp = CookieMicroproxyRegex().Replace(valorTemp, ""); valores = [.. valores.Append(valorTemp)]; }
+                                    pathUrlAtualTemp = ('/' + string.Join('/', pathUrlAtualTemp.TrimStart('/').Split('/')[(urlDestino.Segments.Length - 1)..]));
+
+                                    if (pathUrlAtualTemp == "" || !CharReservadosUrlRegex().IsMatch(pathUrlAtualTemp))
+                                    { foreach (var c in charsReservadosUrl) { pathUrlAtualTemp += pathUrlCliente[pathUrlCliente.IndexOf(c.Value)..]; } }
                                 }
-
-                                requestMessage.Headers.TryAddWithoutValidation(header.Key, valores);
-
-                                if (requestMessage.Content != null && propsHeaders.Contains(header.Key.Replace("-", "")))
-                                { requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valores); }
                             }
 
-                            if (ipRemotoFw != null && ipRemotoFw.Length > 0 && ipRemotoFw != Site.IpLocal)
+                            if (pathUrlAtual != null && !CharReservadosUrlRegex().Replace(pathUrlAtualTemp, "/")
+                                    .StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/"), StringComparison.InvariantCultureIgnoreCase))
+                            { pathUrlAtualTemp = $"{pathUrlAtual}{pathUrlAtualTemp}"; }
+                            else if (!pathUrlAtualTemp.StartsWith('/')) { pathUrlAtualTemp = '/' + pathUrlAtualTemp; }
+                        }
+
+                        if (pathUrlAtualTemp != pathUrlCliente) { absolutePathUrlOrigemRedirect = pathUrlCliente; context.Response.RedirectPreserveMethod(pathUrlAtualTemp); }
+                        else
+                        {
+                            site.UrlDestino = $"{urlDestino.Scheme}://{urlDestino.Authority}";
+
+                            if (tratarUrl)
                             {
-                                foreach (var header in headersIpFw.Where(h => !requestMessage.Headers.TryGetValues(h, out _)).Reverse())
-                                { requestMessage.Headers.TryAddWithoutValidation(header, ipRemotoFw); }
-                            }
+                                pathUrlAtualTemp = request.Path;
 
-                            site.ReqHeaders = JsonConvert.SerializeObject(requestMessage.Headers.NonValidated.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
-
-                            using HttpClientHandler clientHandler = new() { AllowAutoRedirect = false, UseProxy = site.UsarProxy };
-
-                            if (site.IgnorarCertificadoDestino)
-                            {
-                                clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
-                                clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;
-                            }
-
-                            if (context.Connection.ClientCertificate != null)
-                            {
-                                var certificado = ObterCertificado(context.Connection.ClientCertificate.Subject);
-
-                                clientHandler.ClientCertificates.Add(certificado);
-                                clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
-                                clientHandler.SslProtocols = System.Security.Authentication.SslProtocols.Tls12;
-                            }
-
-                            using HttpClient httpClient = new(clientHandler);
-                            if (site.SegundosTempoMax > 0) { httpClient.Timeout = TimeSpan.FromSeconds(site.SegundosTempoMax); }
-                            using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead);
-                            using HttpContent content = response.Content;
-                            Dictionary<string, string[]> headersResposta = response.Headers
-                                        .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
-                                    .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-                                .ToDictionary();
-
-                            context.Response.StatusCode = (int)response.StatusCode;
-                            site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
-                            headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
-
-                            foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
-                            { if (!context.Response.Headers.TryAdd(header.Key, header.Value)) { context.Response.Headers.Append(header.Key, header.Value); } }
-
-                            if (request.Body.CanRead && request.Headers.ContentType.Contains(MediaTypeNames.Application.Octet)) { request.Body.Seek(0, SeekOrigin.Begin); site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync(); }
-
-                            if (context.Response.Headers.Location.Count == 0)
-                            {
-                                absolutePathUrlOrigemRedirect = null;
-
-                                using MemoryStream memoryStream = new();
-                                using Stream streamContentResp = await content.ReadAsStreamAsync();
-
-                                memoryStream.Seek(0, SeekOrigin.Begin);
-                                await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body]);
-                                await context.Response.CompleteAsync();
-                                site.RespBody = await site.BodyAsString(memoryStream, content.Headers.ContentType?.MediaType
-                                    , content.Headers.ContentEncoding.FirstOrDefault());
-                            }
-                            else
-                            {
-                                if (absolutePathUrlOrigemRedirect == null) { absolutePathUrlOrigemRedirect = pathAbsolutoUrlAtual; }
-                                else
+                                if (pathUrlDestino != null)
                                 {
-                                    if (CharReservadosUrlRegex().Replace(pathAbsolutoUrlAtual, "/")
-                                            .StartsWith(CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/")))
+                                    if ((pathUrlAnterior?.Equals(pathUrlAtual, StringComparison.InvariantCultureIgnoreCase) ?? pathUrlAnterior == pathUrlAtual)
+                                        && ((absolutePathUrlOrigemRedirect == null
+                                             && CharReservadosUrlRegex().Replace(pathUrlCliente, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), StringComparison.InvariantCultureIgnoreCase))
+                                            || (absolutePathUrlOrigemRedirect != null
+                                                && (CharReservadosUrlRegex().Replace(pathUrlAtualTemp, "/").StartsWith(CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/"), StringComparison.InvariantCultureIgnoreCase)
+                                                    || CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), StringComparison.InvariantCultureIgnoreCase)))))
+                                    { pathUrlDestino = $"{pathUrlDestino.TrimEnd('/')}{pathUrlCliente}"; }
+                                    else { pathUrlDestino = null; }
+                                }
+                                else if (pathUrlAtual != null && pathUrlAnterior != null
+                                        && (absolutePathUrlOrigemRedirect == null
+                                            || CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/"), StringComparison.InvariantCultureIgnoreCase)))
+                                { pathUrlDestino = $"{pathUrlAtual}{pathUrlCliente}"; }
+                            }
+                        }
+
+                        if (context.Response.StatusCode == StatusCodes.Status200OK)
+                        {
+                            site.InicializarExecutavel();
+                            pathUrlDestino ??= site.PathAtualSubstituto.TrimEnd('/') + pathUrlCliente;
+
+                            if (tratarUrl && pathUrlAtual != null && melhorBind != null && melhorBind.Segments.Length > 1
+                                && pathUrlDestino.StartsWith(melhorBind.AbsolutePath))
+                            { pathUrlDestino = '/' + string.Join('/', pathUrlDestino.TrimStart('/').Split('/')[(melhorBind.Segments.Length - 1)..]); }
+
+                            site.UrlDestino = $"{site.UrlDestino.TrimEnd('/')}{pathUrlDestino}";
+                            urlDestino = new(site.UrlDestino);
+
+                            string pathAbsolutoUrlAtual = request.Path.Value!;
+
+                            if (request.Method.Equals(HttpMethods.Get, StringComparison.InvariantCultureIgnoreCase) && Path.HasExtension(pathAbsolutoUrlAtual)
+                                && configuracao.ArquivosEstaticos != null && configuracao.ArquivosEstaticos != "")
+                            {
+                                string pathDiretorioArquivo = Site.ProcessarPath(configuracao.ArquivosEstaticos.ProcessarStringSubstituicao(site));
+
+                                site.RespBody = await context.Response.SendFileAsync(site, pathDiretorioArquivo, pathAbsolutoUrlAtual.TrimStart('/'));
+                            }
+
+                            if (!context.Response.HasStarted)
+                            {
+                                string[] propsHeaders = [];
+                                using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), site.UrlDestino);
+                                Dictionary<string, StringValues> headersReq = request.Headers
+                                        .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
+                                    .ToDictionary();
+
+                                if (request.Body.CanRead)
+                                {
+                                    request.EnableBuffering();
+
+                                    if (!request.Headers.ContentType.Contains(MediaTypeNames.Application.Octet))
                                     {
-                                        if (pathUrlAtual != null && CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/")
-                                                .StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/")))
-                                        { pathUrlAtual = null; }
+                                        site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync();
+                                        request.Body.Seek(0, SeekOrigin.Begin);
                                     }
 
-                                    absolutePathUrlOrigemRedirect = null;
+                                    requestMessage.Content = new StreamContent(request.Body);
+
+                                    foreach (var item in requestMessage.Content.Headers.GetType().GetProperties()) { propsHeaders = [.. propsHeaders.Append(item.Name)]; }
+                                }
+
+                                headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
+
+                                foreach (var header in headersReq.Where(h => h.Value.Count != 0))
+                                {
+                                    string[] valores = [];
+
+                                    foreach (var valor in header.Value)
+                                    {
+                                        var valorTemp = valor;
+
+                                        if (valorTemp != null) { valorTemp = CookieMicroproxyRegex().Replace(valorTemp, ""); valores = [.. valores.Append(valorTemp)]; }
+                                    }
+
+                                    requestMessage.Headers.TryAddWithoutValidation(header.Key, valores);
+
+                                    if (requestMessage.Content != null && propsHeaders.Contains(header.Key.Replace("-", "")))
+                                    { requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valores); }
+                                }
+
+                                if (ipRemotoFw != null && ipRemotoFw.Length > 0 && ipRemotoFw != Site.IpLocal)
+                                {
+                                    foreach (var header in headersIpFw.Where(h => !requestMessage.Headers.TryGetValues(h, out _)).Reverse())
+                                    { requestMessage.Headers.TryAddWithoutValidation(header, ipRemotoFw); }
+                                }
+
+                                site.ReqHeaders = JsonConvert.SerializeObject(requestMessage.Headers.NonValidated.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
+
+                                using HttpClientHandler clientHandler = new() { AllowAutoRedirect = false, UseProxy = site.UsarProxy };
+
+                                if (site.IgnorarCertificadoDestino)
+                                {
+                                    clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
+                                    clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;
+                                }
+
+                                if (context.Connection.ClientCertificate != null)
+                                {
+                                    var certificado = ObterCertificado(context.Connection.ClientCertificate.Subject);
+
+                                    clientHandler.ClientCertificates.Add(certificado);
+                                    clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
+                                    clientHandler.SslProtocols = System.Security.Authentication.SslProtocols.Tls12;
+                                }
+
+                                using HttpClient httpClient = new(clientHandler);
+                                if (site.SegundosTempoMax > 0) { httpClient.Timeout = TimeSpan.FromSeconds(site.SegundosTempoMax); }
+                                using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead);
+                                using HttpContent content = response.Content;
+                                Dictionary<string, string[]> headersResposta = response.Headers
+                                            .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
+                                        .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
+                                    .ToDictionary();
+
+                                context.Response.StatusCode = (int)response.StatusCode;
+
+                                if (site.UrlsDestinos.Length > 1 && context.Response.StatusCode >= (int)HttpStatusCode.BadRequest) { if (request.Body.CanRead) { request.Body.Seek(0, SeekOrigin.Begin); } }
+                                else
+                                {
+                                    site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
+                                    headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
+
+                                    foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
+                                    { if (!context.Response.Headers.TryAdd(header.Key, header.Value)) { context.Response.Headers.Append(header.Key, header.Value); } }
+
+                                    if (request.Body.CanRead && request.Headers.ContentType.Contains(MediaTypeNames.Application.Octet)) { request.Body.Seek(0, SeekOrigin.Begin); site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync(); }
+
+                                    if (context.Response.Headers.Location.Count == 0)
+                                    {
+                                        absolutePathUrlOrigemRedirect = null;
+
+                                        using MemoryStream memoryStream = new();
+                                        using Stream streamContentResp = await content.ReadAsStreamAsync();
+
+                                        memoryStream.Seek(0, SeekOrigin.Begin);
+                                        await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body]);
+                                        await context.Response.CompleteAsync();
+                                        site.RespBody = await site.BodyAsString(memoryStream, content.Headers.ContentType?.MediaType
+                                            , content.Headers.ContentEncoding.FirstOrDefault());
+                                    }
+                                    else
+                                    {
+                                        if (absolutePathUrlOrigemRedirect == null) { absolutePathUrlOrigemRedirect = pathAbsolutoUrlAtual; }
+                                        else
+                                        {
+                                            if (CharReservadosUrlRegex().Replace(pathAbsolutoUrlAtual, "/")
+                                                    .StartsWith(CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/")))
+                                            {
+                                                if (pathUrlAtual != null && CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/")
+                                                        .StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/")))
+                                                { pathUrlAtual = null; }
+                                            }
+
+                                            absolutePathUrlOrigemRedirect = null;
+                                        }
+                                    }
                                 }
                             }
                         }
-                    }
+                    } while (site.UrlsDestinos.Length > 1 && context.Response.StatusCode >= (int)HttpStatusCode.BadRequest);
                 }
 
                 PathUrlAtual = pathUrlAtual;
