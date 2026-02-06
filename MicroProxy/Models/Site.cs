@@ -15,8 +15,9 @@ namespace MicroProxy.Models
         private static readonly Lock LockUrlsUsadas = new();
         private static Executavel[] Executaveis = [];
         private string[]? _bindDestinos = null;
-        private string[]? _urlsDestinos = null;
+        private UrlDestino[]? _urlsDestinos = null;
         private string? _urlDestino = null;
+        private int? _limiteTempoPing = null;
         private string[]? _methods = null;
         private bool? _ignorarCertificadoDestino = null;
         private Dictionary<string, string[]>? _requestHeadersAdicionais = null;
@@ -52,7 +53,23 @@ namespace MicroProxy.Models
             }
         }
         public string[] UrlsDestinos
-        { get => [.. (_urlsDestinos ?? []).Except(_urlsDescartadas)]; set => _urlsDestinos = [.. value.Select(v => (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}").TrimEnd('/'))]; }
+        {
+            get => [.. (_urlsDestinos?.Select(u => u.Url) ?? []).Except(_urlsDescartadas)];
+            set => _urlsDestinos = [.. value.Select(v => new UrlDestino() { Url = (v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v :
+                $"http://{v}").TrimEnd('/'), Peso = 0f })];
+        }
+        public float[] PesosUrlsDestinos
+        {
+            get => [.. _urlsDestinos?.Select(u => u.Peso) ?? []];
+            set
+            {
+                var qtdUrlsDestinos = _urlsDestinos?.Length ?? 0;
+                var novosValores = value[qtdUrlsDestinos..];
+                int tamMax = Math.Min(novosValores.Length, qtdUrlsDestinos);
+
+                for (int i = 0; i < tamMax; i++) { _urlsDestinos![i].Peso = novosValores[i]; }
+            }
+        }
         public Exception? Exception { get; set; } = null;
         public string? ReqHeaders { get; set; } = null;
         public string? ReqBody { get; set; } = null;
@@ -106,6 +123,7 @@ namespace MicroProxy.Models
         public string HorasAbreviadas => DataHoras.ToString("t");
         public string HorasCompletas => DataHoras.ToString("T");
 
+        public int LimiteTempoPing { get => _limiteTempoPing ?? 500; set => _limiteTempoPing = value; }
         public string[]? BindUrls { get => _bindDestinos; set => _bindDestinos ??= value != null && value.Length != 0 ? [.. value.Select(v => v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}")] : null; }
         public string UrlDestino
         {
@@ -113,22 +131,33 @@ namespace MicroProxy.Models
             {
                 if (_urlDestino != null && (HttpContext.Response.StatusCode < (int)HttpStatusCode.BadRequest)) { return _urlDestino; }
 
-                lock (LockUrlsUsadas)
+                if (HttpContext != null && _urlsDestinos != null)
                 {
-                    if (!DicUrlsUsadas.TryGetValue(IpRemotoFw, out var urls)) { DicUrlsUsadas.Add(IpRemotoFw, urls = []); }
-                    if (_urlDestino != null)
-                    { _urlsDescartadas.Add(_urlDestino = UrlsDestinos.OrderByDescending(u => u.Length).First(u => _urlDestino.StartsWith(u))); urls.Remove(_urlDestino); }
-
-                    _urlDestino = urls.FirstOrDefault(u => UrlsDestinos.Contains(u));
-
-                    if (_urlDestino == null)
+                    lock (LockUrlsUsadas)
                     {
-                        if (HttpContext != null && !HttpContext.Response.HasStarted) { HttpContext.Response.StatusCode = (int)HttpStatusCode.OK; }
-                        System.Net.NetworkInformation.Ping ping = new();
-                        _urlDestino = UrlsDestinos.OrderBy(u => DicUrlsUsadas.Values.Count(v => v.Contains(u)))
-                            .ThenBy(u => ping.Send(new Uri(u).Host).RoundtripTime).FirstOrDefault();
+                        var urlsDestinos = _urlsDestinos.Where(u => !_urlsDescartadas.Contains(u.Url)).ToArray() ?? [];
 
-                        if (_urlDestino != null) { urls.Add(_urlDestino); }
+                        if (!DicUrlsUsadas.TryGetValue(IpRemotoFw, out var urls)) { DicUrlsUsadas.Add(IpRemotoFw, urls = []); }
+                        if (_urlDestino != null)
+                        { _urlsDescartadas.Add(_urlDestino = UrlsDestinos.OrderByDescending(u => u.Length).First(u => _urlDestino.StartsWith(u))); urls.Remove(_urlDestino); }
+
+                        _urlDestino = urls.FirstOrDefault(u => UrlsDestinos.Contains(u));
+
+                        if (_urlDestino == null)
+                        {
+                            if (!HttpContext.Response.HasStarted) { HttpContext.Response.StatusCode = (int)HttpStatusCode.OK; }
+                            System.Net.NetworkInformation.Ping ping = new();
+
+                            var urlDestino = _urlsDestinos.OrderBy(u => u.Peso == 0)
+                                .ThenBy(u => u.Peso != 0 ? DicUrlsUsadas.Values.Count(v => v.Contains(u.Url)) / MathF.Abs(u.Peso) : -1)
+                                .ThenBy(u => ping.Send(new Uri(u.Url).Host, LimiteTempoPing).RoundtripTime).FirstOrDefault();
+
+                            if (urlDestino != null && urlDestino.Peso > 0)
+                            {
+                                _urlDestino = urlDestino.Url;
+                                urls.Add(_urlDestino);
+                            }
+                        }
                     }
                 }
 
