@@ -146,17 +146,15 @@ namespace MicroProxy.Models
                         if (_urlDestino == null)
                         {
                             if (!HttpContext.Response.HasStarted) { HttpContext.Response.StatusCode = (int)HttpStatusCode.OK; }
-                            System.Net.NetworkInformation.Ping ping = new();
+                            using System.Net.NetworkInformation.Ping ping = new();
 
                             var urlDestino = _urlsDestinos.OrderBy(u => u.Peso == 0)
                                 .ThenBy(u => u.Peso != 0 ? DicUrlsUsadas.Values.Count(v => v.Contains(u.Url)) / MathF.Abs(u.Peso) : -1)
                                 .ThenBy(u => ping.Send(new Uri(u.Url).Host, LimiteTempoPing).RoundtripTime).FirstOrDefault();
 
-                            if (urlDestino != null && urlDestino.Peso > 0)
-                            {
-                                _urlDestino = urlDestino.Url;
-                                urls.Add(_urlDestino);
-                            }
+                            _urlDestino = urlDestino?.Url;
+
+                            if (urlDestino != null && urlDestino.Peso > 0) { urls.Add(_urlDestino!); }
                         }
                     }
                 }
