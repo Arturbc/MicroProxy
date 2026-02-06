@@ -9,6 +9,7 @@ using System.Net;
 using System.Net.Mime;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.RegularExpressions;
 using static MicroProxy.Models.Configuracao;
 
@@ -270,25 +271,24 @@ namespace MicroProxy.Models
 
                             if (!context.Response.HasStarted)
                             {
-                                string[] propsHeaders = [];
+                                List<string> propsHeaders = [];
                                 using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), site.UrlDestino);
                                 Dictionary<string, StringValues> headersReq = request.Headers
                                         .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
                                     .ToDictionary();
 
-                                if (request.Body.CanRead)
+                                if (request.Body.CanRead && string.IsNullOrEmpty(site.ReqBody))
                                 {
                                     request.EnableBuffering();
 
-                                    if (!request.Headers.ContentType.Contains(MediaTypeNames.Application.Octet))
-                                    {
-                                        site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync();
-                                        request.Body.Seek(0, SeekOrigin.Begin);
-                                    }
+                                    site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync();
+                                }
 
-                                    requestMessage.Content = new StreamContent(request.Body);
+                                if (!string.IsNullOrEmpty(site.ReqBody))
+                                {
+                                    requestMessage.Content = new StreamContent(new MemoryStream(Encoding.UTF8.GetBytes(site.ReqBody)));
 
-                                    foreach (var item in requestMessage.Content.Headers.GetType().GetProperties()) { propsHeaders = [.. propsHeaders.Append(item.Name)]; }
+                                    foreach (var item in requestMessage.Content.Headers.GetType().GetProperties()) { propsHeaders.Add(item.Name); }
                                 }
 
                                 headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
@@ -335,57 +335,62 @@ namespace MicroProxy.Models
                                     clientHandler.SslProtocols = System.Security.Authentication.SslProtocols.Tls12;
                                 }
 
-                                using HttpClient httpClient = new(clientHandler);
-                                if (site.SegundosTempoMax > 0) { httpClient.Timeout = TimeSpan.FromSeconds(site.SegundosTempoMax); }
-                                using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead);
-                                using HttpContent content = response.Content;
-                                Dictionary<string, string[]> headersResposta = response.Headers
-                                            .Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
-                                        .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-                                    .ToDictionary();
-
-                                context.Response.StatusCode = (int)response.StatusCode;
-
-                                if (site.UrlsDestinos.Length > 1 && context.Response.StatusCode >= (int)HttpStatusCode.BadRequest) { if (request.Body.CanRead) { request.Body.Seek(0, SeekOrigin.Begin); } }
-                                else
+                                try
                                 {
-                                    site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
-                                    headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
+                                    using HttpClient httpClient = new(clientHandler);
+                                    if (site.SegundosTempoMax > 0) { httpClient.Timeout = TimeSpan.FromSeconds(site.SegundosTempoMax); }
+                                    using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead);
+                                    using HttpContent content = response.Content;
+                                    Dictionary<string, string[]> headersResposta = response.Headers.Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
+                                            .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase))).ToDictionary();
 
-                                    foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
-                                    { if (!context.Response.Headers.TryAdd(header.Key, header.Value)) { context.Response.Headers.Append(header.Key, header.Value); } }
+                                    context.Response.StatusCode = (int)response.StatusCode;
 
-                                    if (request.Body.CanRead && request.Headers.ContentType.Contains(MediaTypeNames.Application.Octet)) { request.Body.Seek(0, SeekOrigin.Begin); site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync(); }
-
-                                    if (context.Response.Headers.Location.Count == 0)
+                                    if (site.UrlsDestinos.Length <= 1 || context.Response.StatusCode < (int)HttpStatusCode.BadRequest)
                                     {
-                                        absolutePathUrlOrigemRedirect = null;
+                                        site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
+                                        headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
 
-                                        using MemoryStream memoryStream = new();
-                                        using Stream streamContentResp = await content.ReadAsStreamAsync();
+                                        foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
+                                        { if (!context.Response.Headers.TryAdd(header.Key, header.Value)) { context.Response.Headers.Append(header.Key, header.Value); } }
 
-                                        memoryStream.Seek(0, SeekOrigin.Begin);
-                                        await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body]);
-                                        await context.Response.CompleteAsync();
-                                        site.RespBody = await site.BodyAsString(memoryStream, content.Headers.ContentType?.MediaType
-                                            , content.Headers.ContentEncoding.FirstOrDefault());
-                                    }
-                                    else
-                                    {
-                                        if (absolutePathUrlOrigemRedirect == null) { absolutePathUrlOrigemRedirect = pathAbsolutoUrlAtual; }
+                                        if (context.Response.Headers.Location.Count == 0)
+                                        {
+                                            absolutePathUrlOrigemRedirect = null;
+
+                                            using MemoryStream memoryStream = new();
+                                            using Stream streamContentResp = await content.ReadAsStreamAsync();
+
+                                            memoryStream.Seek(0, SeekOrigin.Begin);
+                                            await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body]);
+                                            await context.Response.CompleteAsync();
+                                            site.RespBody = await site.BodyAsString(memoryStream, content.Headers.ContentType?.MediaType
+                                                , content.Headers.ContentEncoding.FirstOrDefault());
+                                        }
                                         else
                                         {
-                                            if (CharReservadosUrlRegex().Replace(pathAbsolutoUrlAtual, "/")
-                                                    .StartsWith(CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/")))
+                                            if (absolutePathUrlOrigemRedirect == null) { absolutePathUrlOrigemRedirect = pathAbsolutoUrlAtual; }
+                                            else
                                             {
-                                                if (pathUrlAtual != null && CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/")
-                                                        .StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/")))
-                                                { pathUrlAtual = null; }
-                                            }
+                                                if (CharReservadosUrlRegex().Replace(pathAbsolutoUrlAtual, "/")
+                                                        .StartsWith(CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/")))
+                                                {
+                                                    if (pathUrlAtual != null && CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/")
+                                                            .StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/")))
+                                                    { pathUrlAtual = null; }
+                                                }
 
-                                            absolutePathUrlOrigemRedirect = null;
+                                                absolutePathUrlOrigemRedirect = null;
+                                            }
                                         }
                                     }
+                                }
+                                catch (Exception ex)
+                                {
+                                    context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+
+                                    if (site.UrlsDestinos.Length <= 1)
+                                    { throw new Exception("Nenhuma alternativa de conexão respondeu.", ex); }
                                 }
                             }
                         }

@@ -116,7 +116,8 @@ namespace MicroProxy.Models
                 lock (LockUrlsUsadas)
                 {
                     if (!DicUrlsUsadas.TryGetValue(IpRemotoFw, out var urls)) { DicUrlsUsadas.Add(IpRemotoFw, urls = []); }
-                    if (_urlDestino != null) { _urlsDescartadas.Add(_urlDestino = UrlsDestinos.First(u => _urlDestino.StartsWith(u))); urls.Remove(_urlDestino); }
+                    if (_urlDestino != null)
+                    { _urlsDescartadas.Add(_urlDestino = UrlsDestinos.OrderByDescending(u => u.Length).First(u => _urlDestino.StartsWith(u))); urls.Remove(_urlDestino); }
 
                     _urlDestino = urls.FirstOrDefault(u => UrlsDestinos.Contains(u));
 
