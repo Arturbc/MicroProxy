@@ -21,7 +21,7 @@ instalação (portátil), a não ser instalar o Runtime do ASP.NET Core 8.0 para
 utilizar de forma "não autossuficiente", com pacotes compilados menores, utilizando o
 framework compartilhado entre multiplos APPs com as mesmas dependencias. (link abaixo)
 
-<a href="https://dotnet.microsoft.com/pt-br/download/dotnet/8.0">Baixar .NET 8.0</a>
+<a href="https://dotnet.microsoft.com/pt-br/download/dotnet/10.0">Baixar .NET 10.0</a>
 
 Por hora apenas foi testado em Windows e Linux, mas o código também pode ser compilado
 para Mac.
