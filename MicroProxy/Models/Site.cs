@@ -131,7 +131,7 @@ namespace MicroProxy.Models
             {
                 if (_urlDestino != null && (HttpContext.Response.StatusCode < (int)HttpStatusCode.BadRequest)) { return _urlDestino; }
 
-                if (HttpContext != null && _urlsDestinos != null)
+                if (HttpContext != null && _urlsDestinos != null && !HttpContext.Response.HasStarted)
                 {
                     lock (LockUrlsUsadas)
                     {
@@ -145,21 +145,36 @@ namespace MicroProxy.Models
 
                         if (_urlDestino == null)
                         {
-                            if (!HttpContext.Response.HasStarted) { HttpContext.Response.StatusCode = (int)HttpStatusCode.OK; }
-                            using System.Net.NetworkInformation.Ping ping = new();
+                            HttpContext.Response.StatusCode = (int)HttpStatusCode.OK;
 
-                            var urlDestino = _urlsDestinos.OrderBy(u => u.Peso == 0)
-                                .ThenBy(u => u.Peso != 0 ? DicUrlsUsadas.Values.Count(v => v.Contains(u.Url)) / MathF.Abs(u.Peso) : -1)
-                                .ThenBy(u => ping.Send(new Uri(u.Url).Host, LimiteTempoPing).RoundtripTime).FirstOrDefault();
+                            var urlsDestinosAgrupadas = _urlsDestinos.Select(u => new
+                            {
+                                u.Url,
+                                u.Peso,
+                                Prioridade = u.Peso != 0 ? MathF.Floor(DicUrlsUsadas.Values.Count(v => v.Contains(u.Url)) / MathF.Abs(u.Peso)) : -1
+                            })
+                                .GroupBy(u => new { u.Peso, u.Prioridade }, u => u.Url, (metricas, urls) => new { Urls = urls.ToArray(), Metricas = metricas })
+                                .OrderBy(u => u.Metricas.Peso == 0).ThenBy(u => u.Metricas.Prioridade).ThenByDescending(u => u.Metricas.Peso).FirstOrDefault();
 
-                            _urlDestino = urlDestino?.Url;
+                            if (urlsDestinosAgrupadas != null)
+                            {
+                                var urlsPonderadas = urlsDestinosAgrupadas.Urls;
 
-                            if (urlDestino != null && urlDestino.Peso > 0) { urls.Add(_urlDestino!); }
+                                if (urlsDestinosAgrupadas.Urls.Length > 1)
+                                {
+                                    using System.Net.NetworkInformation.Ping ping = new();
+                                    urlsPonderadas = [.. urlsDestinosAgrupadas.Urls.OrderBy(u => ping.Send(new Uri(u).Host, LimiteTempoPing).RoundtripTime)];
+                                }
+
+                                _urlDestino = urlsPonderadas.First();
+
+                                if (urlsDestinosAgrupadas.Metricas.Peso > 0) { urls.Add(_urlDestino!); }
+                            }
                         }
                     }
                 }
 
-                return _urlDestino ??= UrlAtual;
+                return _urlDestino ?? UrlAtual;
             }
 
             set
