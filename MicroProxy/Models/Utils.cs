@@ -390,8 +390,8 @@ namespace MicroProxy.Models
                                 {
                                     if (!context.Response.HasStarted) { context.Response.StatusCode = (int)HttpStatusCode.InternalServerError; }
 
-                                    if (site.UrlsDestinos.Length <= 1)
-                                    { throw new Exception("Nenhuma alternativa de conexão respondeu.", ex); }
+                                    if (site.UrlsDestinos.Length <= 1 || context.Response.HasStarted)
+                                    { throw new Exception(context.Response.HasStarted ? "A requisição foi encerrada." : "Nenhuma alternativa de conexão respondeu.", ex); }
                                 }
                             }
                         }
