@@ -86,7 +86,7 @@ namespace MicroProxy.Models
             return certificado;
         }
 
-        public static async Task ProcessarRequisicao(this RequestDelegate next, HttpContext context, Configuracao configuracao)
+        public static async Task ProcessarRequisicaoAsync(this RequestDelegate next, HttpContext context, Configuracao configuracao)
         {
             HttpRequest request = context.Request;
             Uri urlAtual = new(request.GetDisplayUrl());
@@ -267,7 +267,7 @@ namespace MicroProxy.Models
                             {
                                 string pathDiretorioArquivo = Site.ProcessarPath(configuracao.ArquivosEstaticos.ProcessarStringSubstituicao(site));
 
-                                site.RespBody = await context.Response.SendFileAsync(site, pathDiretorioArquivo, pathAbsolutoUrlAtual.TrimStart('/'));
+                                site.RespBody = await context.Response.SendFileAsync(site, pathDiretorioArquivo, pathAbsolutoUrlAtual.TrimStart('/'), context.RequestAborted);
                             }
 
                             if (!context.Response.HasStarted)
@@ -282,7 +282,7 @@ namespace MicroProxy.Models
                                 {
                                     request.EnableBuffering();
 
-                                    site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync();
+                                    site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync(context.RequestAborted);
                                 }
 
                                 if (!string.IsNullOrEmpty(site.ReqBody))
@@ -365,8 +365,8 @@ namespace MicroProxy.Models
                                             memoryStream.Seek(0, SeekOrigin.Begin);
                                             await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body], context.RequestAborted);
                                             await context.Response.CompleteAsync();
-                                            site.RespBody = await site.BodyAsString(memoryStream, content.Headers.ContentType?.MediaType
-                                                , content.Headers.ContentEncoding.FirstOrDefault());
+                                            site.RespBody = await site.BodyAsStringAsync(memoryStream, content.Headers.ContentType?.MediaType
+                                                , content.Headers.ContentEncoding.FirstOrDefault(), context.RequestAborted);
                                         }
                                         else
                                         {
@@ -417,14 +417,14 @@ namespace MicroProxy.Models
 
                         site.RespBody = await context.Response
                             .SendFileAsync(site, string.Join(Path.DirectorySeparatorChar, partesPath[0..(partesPath.Length - 1)]),
-                                Path.GetFileName(configuracao.TratamentoErroInterno));
+                                Path.GetFileName(configuracao.TratamentoErroInterno), context.RequestAborted);
                     }
 
                     if (!context.Response.HasStarted)
                     {
                         context.Response.Headers.ContentType = MediaTypeNames.Text.Html;
                         await context.Response.WriteAsync($"<!DOCTYPE html><html><head><meta charset=\"utf-8\" /><title>Erro {context.Response.StatusCode}</title></head>" +
-                            $"<body><h1>Erro {context.Response.StatusCode}</h1>{site.ExceptionMensagem?.ReplaceLineEndings("<br>")}</body></html>");
+                            $"<body><h1>Erro {context.Response.StatusCode}</h1>{site.ExceptionMensagem?.ReplaceLineEndings("<br>")}</body></html>", context.RequestAborted);
                         await context.Response.CompleteAsync();
                     }
                 }
@@ -477,7 +477,7 @@ namespace MicroProxy.Models
             }
         }
 
-        public static async Task<string?> SendFileAsync(this HttpResponse httpResponse, Site site, string? pathDiretorio, string? pathArquivo)
+        public static async Task<string?> SendFileAsync(this HttpResponse httpResponse, Site site, string? pathDiretorio, string? pathArquivo, CancellationToken cancellationToken = default)
         {
             if (pathDiretorio != null && pathDiretorio != "" && pathArquivo != null && pathArquivo != "")
             {
@@ -503,9 +503,9 @@ namespace MicroProxy.Models
 
                     if (provedor.TryGetContentType(pathArquivo, out string? tipoConteudo)) { httpResponse.ContentType = tipoConteudo; }
 
-                    await httpResponse.SendFileAsync(arquivo);
+                    await httpResponse.SendFileAsync(arquivo, cancellationToken);
                     await httpResponse.CompleteAsync();
-                    site.RespBody = await site.BodyAsString(conteudoResposta, tipoConteudo);
+                    site.RespBody = await site.BodyAsStringAsync(conteudoResposta, tipoConteudo, cancellationToken: cancellationToken);
 
                     return site.RespBody;
                 }
@@ -514,7 +514,7 @@ namespace MicroProxy.Models
             return null;
         }
 
-        public static async Task<string> BodyAsString(this Site site, Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null)
+        public static async Task<string> BodyAsStringAsync(this Site site, Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null, CancellationToken cancellationToken = default)
         {
             site.RespBody = $"Dado[{tipoConteudo}]";
 
@@ -547,7 +547,7 @@ namespace MicroProxy.Models
                     }
                 }
 
-                site.RespBody = (await new StreamReader(conteudoResposta).ReadToEndAsync()).ProcessarStringSubstituicao(site);
+                site.RespBody = (await new StreamReader(conteudoResposta).ReadToEndAsync(cancellationToken)).ProcessarStringSubstituicao(site);
             }
 
             return site.RespBody;

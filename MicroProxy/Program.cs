@@ -118,7 +118,7 @@ if (codecConteudo != null && string.Join(',', codecConteudo).Length > 0) { app.U
 
 app.UseSession();
 app.UseCors();
-app.Use(async (context, next) => { try { configuracao = new(); } catch { } await next.ProcessarRequisicao(context, configuracao); });
+app.Use(async (context, next) => { try { configuracao = new(); } catch { } await next.ProcessarRequisicaoAsync(context, configuracao); });
 
 configuracao.Sites.First().ExibirVariaveisDisponiveis();
 
