@@ -208,6 +208,8 @@ namespace MicroProxy.Models
 
         public static void ExibirLog(string mensagem, string? scope = null) => ExibirLog([mensagem], scope);
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1873:Evitar registros em log que possam ser caros", Justification = "É necessário para poder organizar os logs dinamicamente")]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2254:O modelo deve ser uma expressão estática", Justification = "É necessário para usar texto variável.")]
         public static void ExibirLog(string[] mensagens, string? scope = null, string separadorLogs = " ")
         {
             using ILoggerFactory loggerFactory =

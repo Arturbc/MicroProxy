@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
+using SuiteArgusLibrary.Extensions;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Mime;
@@ -33,7 +34,7 @@ namespace MicroProxy.Models
         private static string[] HeadersProibidos => ["Transfer-Encoding"];
         private static string[] HeadersProibidosReq => [];
         private static string[] HeadersProibidosResp => [];
-        private static readonly object _lock = new();
+        private static readonly Lock _lock = new();
         public static readonly HttpContextAccessor HttpContextAccessor = new();
         private static ISession? Sessao => HttpContextAccessor.HttpContext?.Session;
         public static string? PathUrlAtual
@@ -339,7 +340,7 @@ namespace MicroProxy.Models
                                 {
                                     using HttpClient httpClient = new(clientHandler);
                                     if (site.SegundosTempoMax > 0) { httpClient.Timeout = TimeSpan.FromSeconds(site.SegundosTempoMax); }
-                                    using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead);
+                                    using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
                                     using HttpContent content = response.Content;
                                     Dictionary<string, string[]> headersResposta = response.Headers.Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
                                             .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase))).ToDictionary();
@@ -359,10 +360,10 @@ namespace MicroProxy.Models
                                             absolutePathUrlOrigemRedirect = null;
 
                                             using MemoryStream memoryStream = new();
-                                            using Stream streamContentResp = await content.ReadAsStreamAsync();
+                                            using Stream streamContentResp = await content.ReadAsStreamAsync(context.RequestAborted);
 
                                             memoryStream.Seek(0, SeekOrigin.Begin);
-                                            await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body]);
+                                            await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body], context.RequestAborted);
                                             await context.Response.CompleteAsync();
                                             site.RespBody = await site.BodyAsString(memoryStream, content.Headers.ContentType?.MediaType
                                                 , content.Headers.ContentEncoding.FirstOrDefault());
@@ -387,7 +388,7 @@ namespace MicroProxy.Models
                                 }
                                 catch (Exception ex)
                                 {
-                                    context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+                                    if (!context.Response.HasStarted) { context.Response.StatusCode = (int)HttpStatusCode.InternalServerError; }
 
                                     if (site.UrlsDestinos.Length <= 1)
                                     { throw new Exception("Nenhuma alternativa de conexão respondeu.", ex); }
@@ -403,7 +404,7 @@ namespace MicroProxy.Models
             catch (Exception ex)
             {
                 site ??= new();
-                site.Exception = new(null, ex);
+                site.Exception = new("A requisição foi encerrada prematuramente.", ex);
 
                 if (!context.Response.HasStarted)
                 {
@@ -461,7 +462,7 @@ namespace MicroProxy.Models
                 }
             }
 
-            if (site.Exception != null) { throw site.Exception; }
+            if (site.Exception != null) { throw new Exception(site.Exception.Contains(typeof(TaskCanceledException)) ? "A requisição foi cancelada." : "Erro inesperado.", site.Exception); }
         }
 
         private static void RedirectPreserveMethod(this HttpResponse response, string novoDestino, bool permanent = false, string? method = null)
@@ -589,7 +590,7 @@ namespace MicroProxy.Models
             return valor;
         }
 
-        public static async Task CopyToAsync(this Stream fonte, int tambuffer, Stream[] destinos)
+        public static async Task CopyToAsync(this Stream fonte, int tambuffer, Stream[] destinos, CancellationToken cancellationToken = default)
         {
             byte[] buffer = new byte[tambuffer];
             int bytesRead;
@@ -597,13 +598,13 @@ namespace MicroProxy.Models
             if (tambuffer <= 0)
             {
                 using MemoryStream memoryStream = new();
-                await fonte.CopyToAsync(memoryStream);
-                foreach (var destino in destinos) { await destino.WriteAsync(memoryStream.ToArray()); }
+                await fonte.CopyToAsync(memoryStream, cancellationToken);
+                foreach (var destino in destinos) { await destino.WriteAsync(memoryStream.ToArray(), cancellationToken); }
             }
             else
             {
-                while ((bytesRead = await fonte.ReadAsync(buffer)) > 0)
-                { foreach (var destino in destinos) { await destino.WriteAsync(buffer.AsMemory(0, bytesRead)); } }
+                while ((bytesRead = await fonte.ReadAsync(buffer, cancellationToken)) > 0)
+                { foreach (var destino in destinos) { await destino.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken); } }
             }
         }
         public static RSA CreateRsaFromPem(string pathKey, string? senha = null)
