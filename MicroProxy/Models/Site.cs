@@ -129,7 +129,7 @@ namespace MicroProxy.Models
         {
             get
             {
-                if (_urlDestino != null && (HttpContext.Response.StatusCode < (int)HttpStatusCode.BadRequest)) { return _urlDestino; }
+                if (_urlDestino != null && (HttpContext.Response.StatusCode < (int)HttpStatusCode.BadRequest || UrlsDestinos.Length <= 1)) { return _urlDestino; }
 
                 if (HttpContext != null && _urlsDestinos != null && !HttpContext.Response.HasStarted)
                 {
