@@ -174,14 +174,14 @@ namespace MicroProxy.Models
                     }
                 }
 
-                return _urlDestino ?? UrlAtual;
+                return _urlDestino ?? (UrlAtual != null ? $"{SchemaAtual}://{AuthorityAtual}/" : null!);
             }
 
             set
             {
                 _urlDestino = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/');
                 if (HttpContext != null && HttpContext.Request.GetDisplayUrl().EndsWith('/')) _urlDestino += '/';
-                if (PathAtualSubstituto == "" && _urlDestino.StartsWith("http", StringComparison.InvariantCultureIgnoreCase)) PathAtualSubstituto = new Uri(_urlDestino).AbsolutePath;
+                if (PathAtualSubstituto == "") PathAtualSubstituto = new Uri(_urlDestino).AbsolutePath;
             }
         }
         public bool IgnorarCertificadoDestino { get => _ignorarCertificadoDestino ?? false; set => _ignorarCertificadoDestino ??= value; }
