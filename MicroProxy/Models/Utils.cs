@@ -320,8 +320,9 @@ namespace MicroProxy.Models
                                     if (request.Body.CanRead && string.IsNullOrEmpty(site.ReqBody))
                                     {
                                         request.EnableBuffering();
+                                        using var streamReader = new StreamReader(request.Body);
 
-                                        site.ReqBody = await new StreamReader(request.Body).ReadToEndAsync(context.RequestAborted);
+                                        site.ReqBody = await streamReader.ReadToEndAsync(context.RequestAborted);
                                     }
 
                                     if (!string.IsNullOrEmpty(site.ReqBody))
@@ -399,9 +400,8 @@ namespace MicroProxy.Models
                                                 absolutePathUrlOrigemRedirect = null;
 
                                                 using MemoryStream memoryStream = new();
-                                                using Stream streamContentResp = await content.ReadAsStreamAsync(context.RequestAborted);
+                                                await using Stream streamContentResp = await content.ReadAsStreamAsync(context.RequestAborted);
 
-                                                memoryStream.Seek(0, SeekOrigin.Begin);
                                                 await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body], context.RequestAborted);
                                                 await context.Response.CompleteAsync();
                                                 site.RespBody = await site.BodyAsStringAsync(memoryStream, content.Headers.ContentType?.MediaType
