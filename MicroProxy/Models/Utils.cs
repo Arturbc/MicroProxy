@@ -50,7 +50,7 @@ namespace MicroProxy.Models
             private set { if (value != null) Sessao?.SetObjectAsJson(PATH_SITE_ORIGEM_REDIRECT, value); else Sessao?.Remove(PATH_SITE_ORIGEM_REDIRECT); }
         }
 
-        public static X509Certificate2 ObterCertificado(string path, string? senha = null, string? pathChave = null, string? ekuoid = null)
+        public static X509Certificate2 ObterCertificado(string path, string? senha = null, string? pathChave = null, string? ekuoid = null, bool exibirLog = false)
         {
             X509Certificate2? certificado = null;
             string pathArquivoCertificado = Site.ProcessarPath(path);
@@ -75,10 +75,14 @@ namespace MicroProxy.Models
                 try { certificado = certificados.FirstOrDefault(c => c.Subject == certificadoPrivado) ?? certificados.First(c => c.Subject.Contains(certificadoPrivado)); }
                 catch (InvalidOperationException ex) { var e = ex; throw new($"Arquivo ou caminho de certificado \"{certificadoPrivado}\" inválido!", e); }
 
-                string[] mensagensLog = [.. certificados.Select(c =>  $"{(c.Subject == certificado.Subject ? "(" : "")}Path/Destinatário " +
+                if (exibirLog)
+                {
+                    string[] mensagensLog = [.. certificados.Select(c =>  $"{(c.Subject == certificado.Subject ? "(" : "")}Path/Destinatário " +
                                          $"\"{c.Subject}\" - Valido de {c.NotBefore} até {c.NotAfter}{(c.Subject == certificado.Subject ? ")" : "")}")];
 
-                Site.ExibirLog(mensagensLog, "Certificados de validação de servidor disponíveis:", "; ");
+                    Site.ExibirLog(mensagensLog, "Certificados de validação de servidor disponíveis:", "; ");
+                }
+
                 x509StoreUsuario.Close();
                 x509StorePC.Close();
             }
@@ -88,9 +92,10 @@ namespace MicroProxy.Models
             return certificado;
         }
 
-        public static async Task ProcessarRequisicaoAsync(this RequestDelegate next, HttpContext context, Configuracao configuracao)
+        public static async Task ProcessarRequisicaoAsync(Stream clientStream, Configuracao configuracao)
         {
-            HttpRequest request = context.Request;
+            HttpContextFromListener context = new(clientStream);
+            var request = context.Request;
             Uri urlAtual = new(request.GetDisplayUrl());
             Site? site = null;
             bool tratarUrl = !HttpMethods.IsGet(request.Method) || !Path.HasExtension(urlAtual.AbsolutePath) || configuracao.ExtensoesUrlNaoRecurso
@@ -186,7 +191,7 @@ namespace MicroProxy.Models
                             context.Response.RedirectPreserveMethod("/");
                         }
                     }
-                    else { await next(context); if (site != null) { context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed; } }
+                    else { if (site != null) { context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed; } }
                 }
 
                 if (site != null && context.Response.StatusCode == StatusCodes.Status200OK)
@@ -266,23 +271,11 @@ namespace MicroProxy.Models
                                     using var serverTcp = new TcpClient(host, porta);
 
                                     context.Response.Headers.Connection = "close";
+                                    await using var serverStream = serverTcp.GetStream();
+                                    var pump1 = clientStream.CopyToAsync(site.BufferResp, [serverStream], context.RequestAborted);
+                                    var pump2 = serverStream.CopyToAsync(site.BufferResp, [clientStream], context.RequestAborted);
 
-                                    var upgradeFeature = context.Features.Get<IHttpUpgradeFeature>();
-
-                                    if (upgradeFeature == null || !upgradeFeature.IsUpgradableRequest)
-                                    {
-                                        context.Response.StatusCode = StatusCodes.Status501NotImplemented;
-                                        await context.Response.CompleteAsync();
-                                    }
-                                    else
-                                    {
-                                        await using var clientStream = await upgradeFeature.UpgradeAsync();
-                                        await using var serverStream = serverTcp.GetStream();
-                                        var pump1 = clientStream.CopyToAsync(site.BufferResp, [serverStream], context.RequestAborted);
-                                        var pump2 = serverStream.CopyToAsync(site.BufferResp, [clientStream], context.RequestAborted);
-
-                                        await Task.WhenAny(pump1, pump2);
-                                    }
+                                    await Task.WhenAny(pump1, pump2);
                                 }
                                 catch
                                 {
@@ -505,7 +498,7 @@ namespace MicroProxy.Models
             if (site.Exception != null) { throw new Exception(site.Exception.Contains(typeof(TaskCanceledException)) ? "A requisição foi cancelada." : "Erro inesperado.", site.Exception); }
         }
 
-        private static void RedirectPreserveMethod(this HttpResponse response, string novoDestino, bool permanent = false, string? method = null)
+        private static void RedirectPreserveMethod(this HttpResponseFromListener response, string novoDestino, bool permanent = false, string? method = null)
         {
             method ??= response.HttpContext.Request.Method;
 
@@ -517,7 +510,7 @@ namespace MicroProxy.Models
             }
         }
 
-        public static async Task<string?> SendFileAsync(this HttpResponse httpResponse, Site site, string? pathDiretorio, string? pathArquivo, CancellationToken cancellationToken = default)
+        public static async Task<string?> SendFileAsync(this HttpResponseFromListener httpResponse, Site site, string? pathDiretorio, string? pathArquivo, CancellationToken cancellationToken = default)
         {
             if (pathDiretorio != null && pathDiretorio != "" && pathArquivo != null && pathArquivo != "")
             {

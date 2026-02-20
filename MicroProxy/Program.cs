@@ -4,7 +4,11 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using System.IO.Compression;
 using System.Net;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.RegularExpressions;
 using static MicroProxy.Models.Configuracao;
 using static MicroProxy.Models.Site;
@@ -35,7 +39,76 @@ builder.Services.AddCors(options =>
 
 https = false;
 
-if (!builder.Environment.IsDevelopment())
+var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS")?.Split(';').OrderBy(u => u.StartsWith("https", StringComparison.OrdinalIgnoreCase)).ToArray() ?? configuracao.Ips;
+List<(TcpListener listener, X509Certificate2? certificado)> tcpListeners = [];
+bool fonteUrlsConfig = urls == configuracao.Ips;
+var certificadoStr = fonteUrlsConfig ? configuracao.CertificadoPrivado : null;
+List<string> mensagens = [];
+List<Task> tarefasListeners = [];
+
+foreach (string url in urls)
+{
+    var ipPorta = IpPortaRegex().Match(url);
+    Uri? uri = fonteUrlsConfig ? null : new Uri(url);
+
+    if (uri != null && string.IsNullOrEmpty(certificadoStr) && uri.Scheme.Equals("https")) { certificadoStr = uri.Host; }
+
+    IPAddress ip = fonteUrlsConfig ? IPAddress.Parse(ipPorta.Groups["ipv4"].Success ? ipPorta.Groups["ipv4"].Value : ipPorta.Groups["ipv6"].Value) : IPAddress.Loopback;
+    var portaHttp = fonteUrlsConfig ? configuracao.PortaHttp : 0;
+    ushort porta = ushort.Parse(uri == null ? (ipPorta.Groups["porta"].Success ? ipPorta.Groups["porta"].Value : "80") : uri.Port.ToString());
+
+    if (!https)
+    {
+        if (string.IsNullOrEmpty(certificadoStr) || portaHttp != 0)
+        {
+            if (string.IsNullOrEmpty(certificadoStr) && (ipPorta.Groups["porta"].Success || portaHttp == 0)) { portaHttp = porta; }
+            tcpListeners.Add((new TcpListener(ip, portaHttp), null));
+            tcpListeners.Last().listener.Start();
+            mensagens.Add($"HTTP listener em {ip}:{portaHttp}");
+        }
+    }
+
+    if (!string.IsNullOrEmpty(certificadoStr))
+    {
+        if (porta == 80 && !ipPorta.Groups["porta"].Success) { porta = 443; }
+        X509Certificate2? certificado = Utils.ObterCertificado(certificadoStr, configuracao.CertificadoPrivadoSenha, configuracao.CertificadoPrivadoChave
+            , Utils.CertificadoEKUOID.Servidor, !https);
+        https = true;
+        tcpListeners.Add((new TcpListener(ip, porta), certificado));
+        tcpListeners.Last().listener.Start();
+        mensagens.Add($"HTTPS listener em {ip}:{porta}");
+    }
+}
+
+foreach (var mensagem in mensagens) { ExibirLog(mensagem); }
+
+foreach (var (listener, certificado) in tcpListeners)
+{
+    tarefasListeners.Add(Task.Run(async () =>
+    {
+        while (true)
+        {
+            using var client = await listener.AcceptTcpClientAsync();
+            using var clientStream = client.GetStream();
+            using var sslStream = new SslStream(clientStream, false);
+            using var streamEmUso = certificado == null ? (Stream)clientStream : sslStream;
+
+            if (certificado != null && streamEmUso is SslStream ssl) { await ssl.AuthenticateAsServerAsync(certificado, false, SslProtocols.Tls12 | SslProtocols.Tls13, true); }
+
+            HttpContextFromListener http = new(streamEmUso);
+            http.Request.EnableBuffering();
+            using var reader = new StreamReader(http.Request.Body);
+            Console.WriteLine(reader.ReadToEnd());
+            var resp = "HTTP/1.1 501 Not Implemented\r\n\r\n";
+            var respBytes = Encoding.ASCII.GetBytes(resp);
+            await streamEmUso.WriteAsync(respBytes);
+        }
+    }));
+}
+
+await Task.WhenAll(tarefasListeners);
+
+/*if (!builder.Environment.IsDevelopment())
 {
     foreach (string ipStr in configuracao.Ips)
     {
@@ -69,7 +142,7 @@ if (!builder.Environment.IsDevelopment())
             }
         });
     }
-}
+}*/
 
 if (configuracao.SolicitarCertificadoCliente && (https || builder.Environment.IsDevelopment()))
 {
@@ -118,7 +191,7 @@ if (codecConteudo != null && string.Join(',', codecConteudo).Length > 0) { app.U
 
 app.UseSession();
 app.UseCors();
-app.Use(async (context, next) => { try { configuracao = new(); } catch { } await next.ProcessarRequisicaoAsync(context, configuracao); });
+//app.Use(async (context, next) => { try { configuracao = new(); } catch { } await next.ProcessarRequisicaoAsync(context, configuracao); });
 
 configuracao.Sites.First().ExibirVariaveisDisponiveis();
 
