@@ -100,10 +100,11 @@ foreach (var (listener, certificado) in tcpListeners)
                 {
                     if (clientStream.DataAvailable)
                     {
-                        using var sslStream = new SslStream(clientStream, false);
+                        using var sslStream = new SslStream(clientStream, false, (sender, cert, chain, errors) => true);
                         using var streamEmUso = certificado == null ? (Stream)clientStream : sslStream;
 
-                        if (certificado != null) { await sslStream.AuthenticateAsServerAsync(certificado, false, SslProtocols.Tls12 | SslProtocols.Tls13, true); }
+                        if (certificado != null)
+                        { await sslStream.AuthenticateAsServerAsync(certificado, configuracao.SolicitarCertificadoCliente, SslProtocols.Tls12 | SslProtocols.Tls13, false); }
 
                         using var scope = app.Services.CreateScope();
                         using HttpContextFromListener context = new(streamEmUso, clientStream);
@@ -124,7 +125,7 @@ foreach (var (listener, certificado) in tcpListeners)
 
                 while (e != null)
                 {
-                    erros.Add(e.Message);
+                    erros.Add($"[{e.GetType().FullName}] {e.Message}");
                     if (!string.IsNullOrEmpty(e.StackTrace)) { erros.Add(e.StackTrace.Replace(" at ", "\nat ")); }
                     e = e.InnerException;
                 }
