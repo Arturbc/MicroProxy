@@ -48,6 +48,8 @@ namespace MicroProxy.Models
         {
             Request = new(stream, clientStream, this);
             Response = new(stream, clientStream, this);
+            Connection = new(clientStream.Socket,
+                stream is SslStream ssl && ssl.RemoteCertificate != null ? new X509Certificate2(ssl.RemoteCertificate) : null);
             RequestAborted = cancellationTokenSource.Token;
         }
 
@@ -58,7 +60,7 @@ namespace MicroProxy.Models
         public HttpRequestFromListener Request { get; }
         public HttpResponseFromListener Response { get; }
         public CancellationToken RequestAborted { get; set; }
-        public ConnectionInfoFromListener Connection { get; } = new();
+        public ConnectionInfoFromListener Connection { get; }
 
         protected virtual void Dispose(bool disposing)
         {
@@ -82,11 +84,11 @@ namespace MicroProxy.Models
         }
     }
 
-    public class ConnectionInfoFromListener
+    public class ConnectionInfoFromListener(Socket socket, X509Certificate2? certificado = null)
     {
-        public X509Certificate2? ClientCertificate { get; }
-        public IPAddress LocalIpAddress { get; } = IPAddress.Loopback;
-        public IPAddress RemoteIpAddress { get; } = IPAddress.Loopback;
+        public X509Certificate2? ClientCertificate { get; } = certificado;
+        public IPAddress LocalIpAddress { get; } = ((IPEndPoint)socket.LocalEndPoint!).Address;
+        public IPAddress RemoteIpAddress { get; } = ((IPEndPoint)socket.RemoteEndPoint!).Address;
     }
 
     public abstract class HttpPacoteFromListener(HttpContextFromListener context) : IDisposable
