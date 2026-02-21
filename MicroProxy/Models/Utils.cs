@@ -37,7 +37,7 @@ namespace MicroProxy.Models
         private static string[] HeadersProibidosReq => [];
         private static string[] HeadersProibidosResp => [];
         private static readonly Lock _lock = new();
-        public static readonly HttpContextAccessor HttpContextAccessor = new();
+        public static readonly HttpContextFromListenerAccessor HttpContextAccessor = new();
         private static ISession? Sessao => HttpContextAccessor.HttpContext?.Session;
         public static string? PathUrlAtual
         {
@@ -92,9 +92,8 @@ namespace MicroProxy.Models
             return certificado;
         }
 
-        public static async Task ProcessarRequisicaoAsync(Stream clientStream, Configuracao configuracao)
+        public static async Task ProcessarRequisicaoAsync(this HttpContextFromListener context, Configuracao configuracao)
         {
-            HttpContextFromListener context = new(clientStream);
             var request = context.Request;
             Uri urlAtual = new(request.GetDisplayUrl());
             Site? site = null;
@@ -272,16 +271,22 @@ namespace MicroProxy.Models
 
                                     context.Response.Headers.Connection = "close";
                                     await using var serverStream = serverTcp.GetStream();
-                                    var pump1 = clientStream.CopyToAsync(site.BufferResp, [serverStream], context.RequestAborted);
-                                    var pump2 = serverStream.CopyToAsync(site.BufferResp, [clientStream], context.RequestAborted);
+                                    var pump1 = context.Response.Body.BaseStream.CopyToAsync(site.BufferResp, [serverStream], context.RequestAborted);
+                                    var pump2 = serverStream.CopyToAsync(site.BufferResp, [context.Response.Body.BaseStream], context.RequestAborted);
 
                                     await Task.WhenAny(pump1, pump2);
                                 }
-                                catch
-                                {
-                                    context.Response.StatusCode = StatusCodes.Status502BadGateway;
-                                    await context.Response.CompleteAsync();
-                                }
+                                catch { context.Response.StatusCode = StatusCodes.Status502BadGateway; }
+                            }
+                            else if (HttpMethods.IsOptions(request.Method))
+                            {
+                                var response =
+                                    "HTTP/1.1 204 No Content\r\n" +
+                                    $"Access-Control-Allow-Origin: {string.Join(',', configuracao.AllowOrigins)}\r\n" +
+                                    $"Access-Control-Allow-Methods: {string.Join(',', site.Methods)}\r\n" +
+                                    $"Access-Control-Allow-Headers: {string.Join(',', configuracao.AllowHeaders)}\r\n" +
+                                    "\r\n";
+                                await context.Response.Body.BaseStream.WriteAsync(Encoding.UTF8.GetBytes(response));
                             }
                             else
                             {
@@ -396,7 +401,6 @@ namespace MicroProxy.Models
                                                 await using Stream streamContentResp = await content.ReadAsStreamAsync(context.RequestAborted);
 
                                                 await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body], context.RequestAborted);
-                                                await context.Response.CompleteAsync();
                                                 site.RespBody = await site.BodyAsStringAsync(memoryStream, content.Headers.ContentType?.MediaType
                                                     , content.Headers.ContentEncoding.FirstOrDefault(), context.RequestAborted);
                                             }
@@ -458,7 +462,6 @@ namespace MicroProxy.Models
                         context.Response.Headers.ContentType = MediaTypeNames.Text.Html;
                         await context.Response.WriteAsync($"<!DOCTYPE html><html><head><meta charset=\"utf-8\" /><title>Erro {context.Response.StatusCode}</title></head>" +
                             $"<body><h1>Erro {context.Response.StatusCode}</h1>{site.ExceptionMensagem?.ReplaceLineEndings("<br>")}</body></html>", context.RequestAborted);
-                        await context.Response.CompleteAsync();
                     }
                 }
             }
@@ -537,7 +540,6 @@ namespace MicroProxy.Models
                     if (provedor.TryGetContentType(pathArquivo, out string? tipoConteudo)) { httpResponse.ContentType = tipoConteudo; }
 
                     await httpResponse.SendFileAsync(arquivo, cancellationToken);
-                    await httpResponse.CompleteAsync();
                     site.RespBody = await site.BodyAsStringAsync(conteudoResposta, tipoConteudo, cancellationToken: cancellationToken);
 
                     return site.RespBody;

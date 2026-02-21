@@ -33,7 +33,7 @@ namespace MicroProxy.Models
         private bool? _autoFechar = null;
         private readonly List<string> _urlsDescartadas = [];
 
-        private static HttpContext HttpContext => Utils.HttpContextAccessor.HttpContext!;
+        private static HttpContextFromListener HttpContext => Utils.HttpContextAccessor.HttpContext!;
         public static string IpLocal => (HttpContext?.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
         public static string IpRemoto => (HttpContext?.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
         public static string IpRemotoFw
@@ -206,19 +206,29 @@ namespace MicroProxy.Models
             if (variaveis.Length != 0) ExibirLog(variaveis, "Variáveis disponíveis:", ", ");
         }
 
-        public static void ExibirLog(string mensagem, string? scope = null) => ExibirLog([mensagem], scope);
+        public static void ExibirLog(string mensagem, string? scope = null, LogLevel level = LogLevel.Information, bool includeScopes = true, bool singleLine = true, string formatoHora = "")
+            => ExibirLog([mensagem], scope, level, " ", includeScopes, singleLine, formatoHora);
+
+        public static void ExibirLog(IEnumerable<string> mensagens, string? scope = null, string separadorLogs = " ",
+            LogLevel level = LogLevel.Information, bool includeScopes = true, bool singleLine = true, string formatoHora = "")
+                => ExibirLog(mensagens, scope, level, separadorLogs, includeScopes, singleLine, formatoHora);
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1873:Evitar registros em log que possam ser caros", Justification = "É necessário para poder organizar os logs dinamicamente")]
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2254:O modelo deve ser uma expressão estática", Justification = "É necessário para usar texto variável.")]
-        public static void ExibirLog(string[] mensagens, string? scope = null, string separadorLogs = " ")
+        public static void ExibirLog(IEnumerable<string> mensagens, string? scope, LogLevel level, string separadorLogs = " ", bool includeScopes = true, bool singleLine = true, string formatoHora = "")
         {
+            if (string.IsNullOrEmpty(formatoHora))
+            {
+                formatoHora = "HH:mm:ss ";
+            }
+
             using ILoggerFactory loggerFactory =
                 LoggerFactory.Create(builder =>
                     builder.AddSimpleConsole(options =>
                     {
-                        options.IncludeScopes = true;
-                        options.SingleLine = true;
-                        options.TimestampFormat = "HH:mm:ss ";
+                        options.IncludeScopes = includeScopes;
+                        options.SingleLine = singleLine;
+                        options.TimestampFormat = formatoHora;
                     }));
             ILogger<Program> logger = loggerFactory.CreateLogger<Program>();
 
@@ -226,18 +236,14 @@ namespace MicroProxy.Models
             {
                 using (logger.BeginScope(scope))
                 {
-                    logger.LogInformation(string.Join(separadorLogs, mensagens));
+                    logger.Log(level, string.Join(separadorLogs, mensagens));
                 }
             }
-            else logger.LogInformation(string.Join(separadorLogs, mensagens));
+            else logger.Log(level, string.Join(separadorLogs, mensagens));
         }
-
         public static string ProcessarPath(string path)
         {
-            if (path.Trim() != "")
-            {
-                path = Path.GetFullPath(Environment.ExpandEnvironmentVariables(path));
-            }
+            if (path.Trim() != "") { path = Path.GetFullPath(Environment.ExpandEnvironmentVariables(path)); }
 
             return path;
         }
