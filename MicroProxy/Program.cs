@@ -103,13 +103,12 @@ foreach (var (listener, certificado) in tcpListeners)
                         using var sslStream = new SslStream(clientStream, false);
                         using var streamEmUso = certificado == null ? (Stream)clientStream : sslStream;
 
-                        if (certificado != null) { await sslStream.AuthenticateAsServerAsync(certificado); }
+                        if (certificado != null) { await sslStream.AuthenticateAsServerAsync(certificado, false, SslProtocols.Tls12 | SslProtocols.Tls13, true); }
 
                         using var scope = app.Services.CreateScope();
                         using HttpContextFromListener context = new(streamEmUso, clientStream);
                         var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();
                         accessor.HttpContext = context;
-                        if (certificado != null && streamEmUso is SslStream ssl) { await ssl.AuthenticateAsServerAsync(certificado, false, SslProtocols.Tls12 | SslProtocols.Tls13, true); }
                         try { configuracao = new(); } catch { }
                         await context.ProcessarRequisicaoAsync(configuracao);
                         break;

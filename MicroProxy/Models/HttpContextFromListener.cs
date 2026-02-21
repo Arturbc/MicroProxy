@@ -162,9 +162,9 @@ namespace MicroProxy.Models
         {
             var clientStream = (NetworkStream)Body.GetType()
                 .GetField("_clientStream", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(Body)!;
-            var buffer = Body.GetType()
-                .GetField("_buffer", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(Body) as MemoryStream;
-            if (buffer == null) { Body = new(Body.BaseStream, clientStream, this, true, false, true, new MemoryStream()); }
+            if (Body.GetType()
+                .GetField("_buffer", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(Body) is not MemoryStream)
+            { Body = new(Body.BaseStream, clientStream, this, true, false, true, new MemoryStream()); }
         }
 
         public string GetDisplayUrl()
@@ -225,8 +225,8 @@ namespace MicroProxy.Models
 
             if (buffer != null)
             {
-                while (_clientStream.Socket.Poll(0, SelectMode.SelectRead))
-                { CopyTo(buffer, _clientStream.Socket.Available); }
+                do { CopyTo(buffer, BaseStream is SslStream ? 17000 : _clientStream.Socket.Available); }
+                while (BaseStream is not SslStream && _clientStream.Socket.Poll(0, SelectMode.SelectRead));
                 buffer.Seek(0, SeekOrigin.Begin);
                 _buffer = buffer;
             }
@@ -271,11 +271,11 @@ namespace MicroProxy.Models
             int read;
             var buffer = new byte[bufferSize];
 
-            if (_buffer != null || _clientStream.Socket.Poll(0, SelectMode.SelectRead))
+            if (_buffer != null || BaseStream is SslStream || _clientStream.Socket.Poll(0, SelectMode.SelectRead))
             {
                 read = await ReadAsync(buffer, cancellationToken);
 
-                if (read != 0) { await destination.WriteAsync(buffer, cancellationToken); }
+                if (read != 0) { await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken); }
             }
         }
 
