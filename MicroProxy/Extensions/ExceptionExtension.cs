@@ -1,6 +1,7 @@
-﻿using System.Diagnostics;
+﻿using MicroProxy.Extensions;
+using System.Diagnostics;
 
-namespace SuiteArgusLibrary.Extensions
+namespace MicroProxy.Extensions
 {
     public static class ExceptionExtension
     {

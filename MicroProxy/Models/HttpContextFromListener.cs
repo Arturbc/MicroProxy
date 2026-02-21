@@ -1,6 +1,6 @@
-﻿using Microsoft.Extensions.FileProviders;
+﻿using MicroProxy.Extensions;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
-using SuiteArgusLibrary.Extensions;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;

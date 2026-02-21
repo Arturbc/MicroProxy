@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
-using SuiteArgusLibrary.Extensions;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Mime;
