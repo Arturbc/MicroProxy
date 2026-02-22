@@ -202,6 +202,20 @@ namespace MicroProxy.Models
 
             await stream.CopyToAsync(Body, cancellationToken);
         }
+
+        public async Task CompleteAsync()
+        {
+            var cabecalho = MontarCabecalho();
+            HasStarted = true;
+            if (!string.IsNullOrEmpty(cabecalho)) { await Body.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), default); }
+        }
+
+        private string MontarCabecalho()
+        {
+            var metodo = Body.GetType().GetMethod(nameof(MontarCabecalho), BindingFlags.NonPublic | BindingFlags.Instance);
+
+            return (metodo?.Invoke(Body, null) as string) ?? "";
+        }
     }
 
     public class BodyStream : Stream, IDisposable
@@ -319,8 +333,8 @@ namespace MicroProxy.Models
             {
                 httpResponse.GetType().GetProperty(nameof(httpResponse.HasStarted))!.SetValue(httpResponse, true);
                 return $"HTTP/1.1 {httpResponse.StatusCode} {(HttpStatusCode)httpResponse.StatusCode}\r\n" +
-                    string.Join("\r\n", httpResponse.Headers.Select(h => $"{h.Key}: {h.Value}")) +
-                    "\r\n\r\n";
+                    string.Join("", httpResponse.Headers.Select(h => $"{h.Key}: {h.Value}\r\n")) +
+                    "\r\n";
             }
 
             return "";

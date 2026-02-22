@@ -120,7 +120,7 @@ foreach (var (listener, certificado) in tcpListeners)
 
                             using var scope = app.Services.CreateScope();
                             using HttpContextFromListener context = new(streamEmUso, clientStream, app.Lifetime.ApplicationStopping);
-                            ExibirLog($"Destino da conexão: {new Uri(context.Request.GetDisplayUrl()).Authority}");
+                            ExibirLog($"URL de conexão solicitado: {new Uri(context.Request.GetDisplayUrl()).Authority}");
                             var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();
                             accessor.HttpContext = context;
                             await context.ProcessarRequisicaoAsync(configuracao);

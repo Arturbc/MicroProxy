@@ -176,16 +176,7 @@ namespace MicroProxy.Models
                 return _urlDestino ?? (UrlAtual != null ? $"{SchemaAtual}://{AuthorityAtual}/" : null!);
             }
 
-            set
-            {
-                if (!HttpMethods.IsConnect(HttpContext?.Request.Method ?? ""))
-                {
-                    _urlDestino = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/');
-                    if (HttpContext != null && HttpContext.Request.GetDisplayUrl().EndsWith('/')) { _urlDestino += '/'; }
-                    if (PathAtualSubstituto == "") { PathAtualSubstituto = new Uri(_urlDestino).AbsolutePath; }
-                }
-                else { _urlDestino = value; }
-            }
+            set => _urlDestino = ExibirUrlAjustada(value);
         }
         public bool IgnorarCertificadoDestino { get => _ignorarCertificadoDestino ?? false; set => _ignorarCertificadoDestino ??= value; }
         public string[] Methods { get => _methods!; set => _methods ??= value ?? ["*"]; }
@@ -200,6 +191,19 @@ namespace MicroProxy.Models
         public bool JanelaVisivel { get => _janelaVisivel ?? false; set => _janelaVisivel ??= value; }
         public bool AutoExec { get => _autoExec ?? false; set => _autoExec ??= value; }
         public bool AutoFechar { get => _autoFechar ?? !JanelaVisivel; set => _autoFechar ??= value; }
+
+        public static string ExibirUrlAjustada(string url)
+        {
+            string urlAjustada = url.TrimEnd('/');
+
+            if (HttpContext != null && !HttpMethods.IsConnect(HttpContext.Request.Method))
+            {
+                if (!urlAjustada.StartsWith("http", StringComparison.InvariantCultureIgnoreCase)) { urlAjustada = $"http://{urlAjustada}"; }
+                if (HttpContext.Request.GetDisplayUrl().EndsWith('/')) { urlAjustada += '/'; }
+            }
+
+            return urlAjustada;
+        }
 
         public void ExibirVariaveisDisponiveis()
         {

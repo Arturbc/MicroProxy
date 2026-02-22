@@ -198,6 +198,7 @@ namespace MicroProxy.Models
                         string? pathUrlDestino = null;
 
                         urlDestino = new(site.UrlDestino);
+                        Site.ExibirLog($"URL de destino: {Site.ExibirUrlAjustada(HttpMethods.IsConnect(request.Method) ? urlDestino.Authority : urlDestino.OriginalString)}");
                         site.PathAtualAdicional = urlDestino.AbsolutePath;
 
                         if (tratarUrl)
@@ -271,23 +272,20 @@ namespace MicroProxy.Models
                                     var pump1 = context.Response.Body.BaseStream.CopyToAsync(site.BufferResp, [serverStream], context.RequestAborted);
                                     var pump2 = serverStream.CopyToAsync(site.BufferResp, [context.Response.Body.BaseStream], context.RequestAborted);
 
-                                    var response =
-                                        $"{context.Request.Protocol} {context.Response.StatusCode} {HttpStatusCode.OK}\r\n\r\n";
-                                    await context.Response.Body.BaseStream.WriteAsync(Encoding.UTF8.GetBytes(response));
+                                    await context.Response.CompleteAsync();
                                     await Task.WhenAny(pump1, pump2);
                                 }
                                 catch { context.Response.StatusCode = StatusCodes.Status502BadGateway; }
                             }
                             else if (HttpMethods.IsOptions(request.Method))
                             {
+                                var tipoSite = site.GetType();
                                 context.Response.StatusCode = (int)HttpStatusCode.NoContent;
-                                var response =
-                                    $"{context.Request.Protocol} {context.Response.StatusCode} {HttpStatusCode.NoContent}\r\n" +
-                                    $"Access-Control-Allow-Origin: {string.Join(',', configuracao.AllowOrigins)}\r\n" +
-                                    $"Access-Control-Allow-Methods: {string.Join(',', site.Methods)}\r\n" +
-                                    $"Access-Control-Allow-Headers: {string.Join(',', configuracao.AllowHeaders)}\r\n" +
-                                    "\r\n";
-                                await context.Response.Body.BaseStream.WriteAsync(Encoding.UTF8.GetBytes(response));
+                                context.Response.Headers.Append("Access-Control-Allow-Headers", configuracao.AllowHeaders);
+                                context.Response.Headers.Append("Access-Control-Allow-Methods", configuracao.AllowMethods);
+                                context.Response.Headers.Append("Access-Control-Allow-Origin", configuracao.AllowOrigins);
+
+                                await context.Response.CompleteAsync();
                             }
                             else
                             {
