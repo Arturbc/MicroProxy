@@ -75,6 +75,7 @@ foreach (string url in urls)
     }
 }
 
+int tarefas = 0;
 var app = builder.Build();
 var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 lifetime.ApplicationStopping.Register(OnShutdown);
@@ -90,48 +91,64 @@ foreach (var (listener, certificado) in tcpListeners)
     {
         while (!app.Lifetime.ApplicationStopping.IsCancellationRequested)
         {
-            try
+            var client = await listener.AcceptTcpClientAsync(app.Lifetime.ApplicationStopping);
+            var clientStream = client.GetStream();
+            try { configuracao = new(); } catch { }
+            var tarefa = Task.Run(async () =>
             {
-                using var client = await listener.AcceptTcpClientAsync(app.Lifetime.ApplicationStopping);
-                using var clientStream = client.GetStream();
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-
-                while (true)
+                IPEndPoint? ipRemoto = null;
+                IPEndPoint? ipLocal = null;
+                try
                 {
-                    if (clientStream.DataAvailable)
+                    using var clientTask = client;
+                    await using var clientStream = clientTask.GetStream();
+                    using var cts = CancellationTokenSource
+                        .CreateLinkedTokenSource(new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token, app.Lifetime.ApplicationStopping);
+                    ipRemoto = (IPEndPoint)clientStream.Socket.RemoteEndPoint!;
+                    ipLocal = (IPEndPoint)clientStream.Socket.LocalEndPoint!;
+                    ExibirLog($"Cliente {ipRemoto} conectado a {ipLocal}... (Tarefa ativas: {++tarefas})");
+
+                    while (!cts.IsCancellationRequested)
                     {
-                        using var sslStream = new SslStream(clientStream, false, (sender, cert, chain, errors) => true);
-                        using var streamEmUso = certificado == null ? (Stream)clientStream : sslStream;
+                        if (clientStream.DataAvailable)
+                        {
+                            using var sslStream = new SslStream(clientStream, false, (sender, cert, chain, errors) => true);
+                            using var streamEmUso = certificado == null ? (Stream)clientStream : sslStream;
 
-                        if (certificado != null)
-                        { await sslStream.AuthenticateAsServerAsync(certificado, configuracao.SolicitarCertificadoCliente, SslProtocols.Tls12 | SslProtocols.Tls13, false); }
+                            if (certificado != null)
+                            { await sslStream.AuthenticateAsServerAsync(certificado, configuracao.SolicitarCertificadoCliente, SslProtocols.Tls12 | SslProtocols.Tls13, false); }
 
-                        using var scope = app.Services.CreateScope();
-                        using HttpContextFromListener context = new(streamEmUso, clientStream);
-                        var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();
-                        accessor.HttpContext = context;
-                        try { configuracao = new(); } catch { }
-                        await context.ProcessarRequisicaoAsync(configuracao);
-                        break;
+                            using var scope = app.Services.CreateScope();
+                            using HttpContextFromListener context = new(streamEmUso, clientStream, app.Lifetime.ApplicationStopping);
+                            ExibirLog($"Destino da conexão: {new Uri(context.Request.GetDisplayUrl()).Authority}");
+                            var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();
+                            accessor.HttpContext = context;
+                            await context.ProcessarRequisicaoAsync(configuracao);
+                            break;
+                        }
+
+                        await Task.Delay(1, cts.Token);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    List<string> erros = [];
+                    var e = ex;
+
+                    while (e != null)
+                    {
+                        erros.Add($"[{e.GetType().FullName}] {e.Message}");
+                        if (!string.IsNullOrEmpty(e.StackTrace)) { erros.Add(e.StackTrace.Replace(" at ", "\nat ") + "\n"); }
+                        e = e.InnerException;
                     }
 
-                    await Task.Delay(1, cts.Token);
-                }
-            }
-            catch (Exception ex)
-            {
-                List<string> erros = [];
-                var e = ex;
-
-                while (e != null)
-                {
-                    erros.Add($"[{e.GetType().FullName}] {e.Message}");
-                    if (!string.IsNullOrEmpty(e.StackTrace)) { erros.Add(e.StackTrace.Replace(" at ", "\nat ")); }
-                    e = e.InnerException;
+                    if (erros.Count > 0) { ExibirLog(erros, level: LogLevel.Error); }
                 }
 
-                if (erros.Count > 0) { ExibirLog(erros, level: LogLevel.Error); }
-            }
+                ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Tarefa ativas: {--tarefas})");
+            });
+
+            do { await Task.WhenAny(tarefa, Task.Delay(100)); } while (!tarefa.IsCompleted && clientStream.DataAvailable);
         }
     }));
 }

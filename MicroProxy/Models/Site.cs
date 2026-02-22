@@ -178,9 +178,13 @@ namespace MicroProxy.Models
 
             set
             {
-                _urlDestino = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/');
-                if (HttpContext != null && HttpContext.Request.GetDisplayUrl().EndsWith('/')) _urlDestino += '/';
-                if (PathAtualSubstituto == "") PathAtualSubstituto = new Uri(_urlDestino).AbsolutePath;
+                if (!HttpMethods.IsConnect(HttpContext?.Request.Method ?? ""))
+                {
+                    _urlDestino = (value.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? value : $"http://{value}").TrimEnd('/');
+                    if (HttpContext != null && HttpContext.Request.GetDisplayUrl().EndsWith('/')) { _urlDestino += '/'; }
+                    if (PathAtualSubstituto == "") { PathAtualSubstituto = new Uri(_urlDestino).AbsolutePath; }
+                }
+                else { _urlDestino = value; }
             }
         }
         public bool IgnorarCertificadoDestino { get => _ignorarCertificadoDestino ?? false; set => _ignorarCertificadoDestino ??= value; }

@@ -12,16 +12,12 @@ namespace MicroProxy.Models
 {
     public interface IHttpContextFromListenerAccessor
     {
-        /// <summary>
-        /// Gets or sets the current <see cref="HttpContext"/>. Returns <see langword="null" /> if there is no active <see cref="HttpContext" />.
-        /// </summary>
         HttpContextFromListener? HttpContext { get; set; }
     }
     public class HttpContextFromListenerAccessor : IHttpContextFromListenerAccessor
     {
         private static readonly AsyncLocal<HttpContextFromListenerHolder> _httpContextCurrent = new();
 
-        /// <inheritdoc/>
         public HttpContextFromListener? HttpContext
         {
             get
@@ -37,23 +33,18 @@ namespace MicroProxy.Models
             }
         }
 
-        private sealed class HttpContextFromListenerHolder
-        {
-            public HttpContextFromListener? Context;
-        }
+        private sealed class HttpContextFromListenerHolder { public HttpContextFromListener? Context; }
     }
     public class HttpContextFromListener : IDisposable
     {
-        public HttpContextFromListener(Stream stream, NetworkStream clientStream)
+        public HttpContextFromListener(Stream stream, NetworkStream clientStream, CancellationToken cancellationToken = default)
         {
             Request = new(stream, clientStream, this);
             Response = new(stream, clientStream, this);
             Connection = new(clientStream.Socket,
                 stream is SslStream ssl && ssl.RemoteCertificate != null ? new X509Certificate2(ssl.RemoteCertificate) : null);
-            RequestAborted = cancellationTokenSource.Token;
+            RequestAborted = cancellationToken;
         }
-
-        private readonly CancellationTokenSource cancellationTokenSource = new();
         private bool disposedValue;
 
         public ISession? Session { get; private set; }
@@ -70,7 +61,6 @@ namespace MicroProxy.Models
                 {
                     Request.Dispose();
                     Response.Dispose();
-                    cancellationTokenSource.Dispose();
                 }
 
                 disposedValue = true;
@@ -130,7 +120,7 @@ namespace MicroProxy.Models
                 if (header.Length > 1) { Headers.Append(header[0], new(header[1])); }
             } while (header.Length > 1);
 
-            uri = new(req[1], UriKind.RelativeOrAbsolute);
+            uri = new(req[1].Contains("://") || req[1].StartsWith('/') ? req[1] : "http://" + req[1], UriKind.RelativeOrAbsolute);
             Method = req[0];
             Path = uri.IsAbsoluteUri ? uri.AbsolutePath : uri.OriginalString;
             QueryString = new QueryString(uri.IsAbsoluteUri ? uri.Query : (uri.OriginalString.Contains('?') ? uri.OriginalString.Split('?')[1] : null));

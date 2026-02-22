@@ -271,14 +271,18 @@ namespace MicroProxy.Models
                                     var pump1 = context.Response.Body.BaseStream.CopyToAsync(site.BufferResp, [serverStream], context.RequestAborted);
                                     var pump2 = serverStream.CopyToAsync(site.BufferResp, [context.Response.Body.BaseStream], context.RequestAborted);
 
+                                    var response =
+                                        $"{context.Request.Protocol} {context.Response.StatusCode} {HttpStatusCode.OK}\r\n\r\n";
+                                    await context.Response.Body.BaseStream.WriteAsync(Encoding.UTF8.GetBytes(response));
                                     await Task.WhenAny(pump1, pump2);
                                 }
                                 catch { context.Response.StatusCode = StatusCodes.Status502BadGateway; }
                             }
                             else if (HttpMethods.IsOptions(request.Method))
                             {
+                                context.Response.StatusCode = (int)HttpStatusCode.NoContent;
                                 var response =
-                                    "HTTP/1.1 204 No Content\r\n" +
+                                    $"{context.Request.Protocol} {context.Response.StatusCode} {HttpStatusCode.NoContent}\r\n" +
                                     $"Access-Control-Allow-Origin: {string.Join(',', configuracao.AllowOrigins)}\r\n" +
                                     $"Access-Control-Allow-Methods: {string.Join(',', site.Methods)}\r\n" +
                                     $"Access-Control-Allow-Headers: {string.Join(',', configuracao.AllowHeaders)}\r\n" +
@@ -467,6 +471,8 @@ namespace MicroProxy.Models
 
             lock (_lock)
             {
+                if (HttpMethods.IsConnect(context.Request.Method)) { site.UrlDestino = site.AuthorityDestino; }
+
                 foreach (var log in configuracao.Logs ?? [])
                 {
                     if (tratarUrl || !log.Value.IgnorarArquivosEstaticos)
@@ -495,7 +501,11 @@ namespace MicroProxy.Models
                 }
             }
 
-            if (site.Exception != null) { throw new Exception(site.Exception.Contains(typeof(TaskCanceledException)) ? "A requisição foi cancelada." : "Erro inesperado.", site.Exception); }
+            if (site.Exception != null)
+            {
+                throw new Exception(site.Exception.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException), typeof(SocketException)])
+                    ? "A requisição foi cancelada." : "Erro inesperado.", site.Exception);
+            }
         }
 
         private static void RedirectPreserveMethod(this HttpResponseFromListener response, string novoDestino, bool permanent = false, string? method = null)
