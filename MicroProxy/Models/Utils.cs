@@ -13,6 +13,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
 using static MicroProxy.Models.Configuracao;
+using static MicroProxy.Helpers.StreamHelper;
 
 namespace MicroProxy.Models
 {
@@ -261,24 +262,7 @@ namespace MicroProxy.Models
                             site.InicializarExecutavel();
                             pathUrlDestino ??= site.PathAtualSubstituto.TrimEnd('/') + pathUrlCliente;
 
-                            if (HttpMethods.IsConnect(request.Method))
-                            {
-                                var partes = site.UrlDestino.Split(':');
-                                var host = partes[1].TrimStart('/');
-                                var porta = partes.Length == 3 && int.TryParse(partes[2], out var p) ? p : 443;
-
-                                try
-                                {
-                                    using var serverTcp = new TcpClient(host, porta);
-
-                                    response.Headers.Connection = "close";
-                                    await using var serverStream = serverTcp.GetStream();
-                                    tarefasAsync.Add(response.Body.BaseStream.CopyToAsync(site.BufferResp, [serverStream], context.RequestAborted));
-                                    tarefasAsync.Add(serverStream.CopyToAsync(site.BufferResp, [response.Body.BaseStream], context.RequestAborted));
-                                }
-                                catch { response.StatusCode = StatusCodes.Status502BadGateway; }
-                            }
-                            else if (HttpMethods.IsOptions(request.Method))
+                            if (HttpMethods.IsOptions(request.Method))
                             {
                                 var tipoSite = site.GetType();
                                 response.StatusCode = (int)HttpStatusCode.NoContent;
@@ -288,147 +272,201 @@ namespace MicroProxy.Models
                             }
                             else
                             {
-                                if (tratarUrl && pathUrlAtual != null && melhorBind != null && melhorBind.Segments.Length > 1
-                                    && pathUrlDestino.StartsWith(melhorBind.AbsolutePath))
-                                { pathUrlDestino = '/' + string.Join('/', pathUrlDestino.TrimStart('/').Split('/')[(melhorBind.Segments.Length - 1)..]); }
+                                using var tcpClient = new TcpClient(urlDestino.Host, urlDestino.Port) { NoDelay = true };
+                                await using var serverStream = tcpClient.GetStream();
+                                using var memory = new MemoryStream();
 
-                                site.UrlDestino = $"{site.UrlDestino.TrimEnd('/')}{pathUrlDestino}";
-                                urlDestino = new(site.UrlDestino);
-
-                                string pathAbsolutoUrlAtual = request.Path.Value!;
-
-                                if (HttpMethods.IsGet(request.Method) && Path.HasExtension(pathAbsolutoUrlAtual)
-                                    && configuracao.ArquivosEstaticos != null && configuracao.ArquivosEstaticos != "")
+                                try
                                 {
-                                    string pathDiretorioArquivo = Site.ProcessarPath(configuracao.ArquivosEstaticos.ProcessarStringSubstituicao(site));
-
-                                    site.RespBody = await response.SendFileAsync(pathDiretorioArquivo, pathAbsolutoUrlAtual.TrimStart('/'), context.RequestAborted);
-                                }
-
-                                if (!response.HasStarted)
-                                {
-                                    List<string> propsHeaders = [];
-                                    using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), urlDestino);
-                                    Dictionary<string, StringValues> headersReq = request.Headers
-                                            .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-                                        .ToDictionary();
-
-                                    if (request.Body.CanRead && string.IsNullOrEmpty(site.ReqBody))
+                                    if (HttpMethods.IsConnect(request.Method))
                                     {
-                                        request.EnableBuffering();
-                                        using var streamReader = new StreamReader(request.Body);
-
-                                        site.ReqBody = await streamReader.ReadToEndAsync(context.RequestAborted);
+                                        response.Headers.Connection = "close";
+                                        tarefasAsync.Add(response.Body.BaseStream.CopyToAsync(site.BufferResp, [serverStream], context.RequestAborted));
+                                        tarefasAsync.Add(serverStream.CopyToAsync(site.BufferResp, [response.Body.BaseStream], context.RequestAborted));
                                     }
-
-                                    if (!string.IsNullOrEmpty(site.ReqBody))
+                                    else
                                     {
-                                        requestMessage.Content = new StreamContent(new MemoryStream(Encoding.UTF8.GetBytes(site.ReqBody)));
-
-                                        foreach (var item in requestMessage.Content.Headers.GetType().GetProperties()) { propsHeaders.Add(item.Name); }
-                                    }
-
-                                    headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
-
-                                    foreach (var header in headersReq.Where(h => h.Value.Count != 0))
-                                    {
-                                        string[] valores = [];
-
-                                        foreach (var valor in header.Value)
+                                        var cabecalho = MontarCabecalhoPacote(request.Protocol, site.PathAndQueryAtual, request.Method, request.Headers);
+                                        response.GetType().GetProperty(nameof(response.HasStarted))!.SetValue(response, true);
+                                        try
                                         {
-                                            var valorTemp = valor;
+                                            await serverStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho));
+                                            await request.Body.CopyToAsync(site.BufferResp, [serverStream, memory], context.RequestAborted);
+                                            await serverStream.FlushAsync(context.RequestAborted);
+                                        }
+                                        catch (Exception ex) { site.Exception = ex; }
+                                        await memory.FlushAsync(context.RequestAborted);
+                                        memory.Seek(0, SeekOrigin.Begin);
+                                        using StreamReader readerReq = new(memory);
+                                        site.ReqBody = await readerReq.ReadToEndAsync();
 
-                                            if (valorTemp != null) { valorTemp = CookieMicroproxyRegex().Replace(valorTemp, ""); valores = [.. valores.Append(valorTemp)]; }
+                                        if (site.Exception != null) { throw new("Falha durante a requisição", site.Exception); }
+
+                                        memory.Seek(0, SeekOrigin.Begin);
+                                        memory.SetLength(0);
+
+                                        try
+                                        {
+                                            await serverStream.CopyToAsync(site.BufferResp, [response.Body.BaseStream, memory], context.RequestAborted);
+                                            await response.Body.BaseStream.FlushAsync(context.RequestAborted);
+                                        }
+                                        catch (Exception ex) { site.Exception = ex; }
+                                        await memory.FlushAsync(context.RequestAborted);
+                                        memory.Seek(0, SeekOrigin.Begin);
+                                        using StreamReader readerResp = new(memory);
+                                        site.RespBody = await readerResp.ReadToEndAsync();
+
+                                        if (site.Exception != null) { throw new("Falha durante a resposta", site.Exception); }
+                                    }
+
+                                }
+                                catch { response.StatusCode = StatusCodes.Status502BadGateway; }
+
+                                if (false)
+                                {
+                                    if (tratarUrl && pathUrlAtual != null && melhorBind != null && melhorBind.Segments.Length > 1
+                                    && pathUrlDestino.StartsWith(melhorBind.AbsolutePath))
+                                    { pathUrlDestino = '/' + string.Join('/', pathUrlDestino.TrimStart('/').Split('/')[(melhorBind.Segments.Length - 1)..]); }
+
+                                    site.UrlDestino = $"{site.UrlDestino.TrimEnd('/')}{pathUrlDestino}";
+                                    urlDestino = new(site.UrlDestino);
+
+                                    string pathAbsolutoUrlAtual = request.Path.Value!;
+
+                                    if (HttpMethods.IsGet(request.Method) && Path.HasExtension(pathAbsolutoUrlAtual)
+                                        && configuracao.ArquivosEstaticos != null && configuracao.ArquivosEstaticos != "")
+                                    {
+                                        string pathDiretorioArquivo = Site.ProcessarPath(configuracao.ArquivosEstaticos.ProcessarStringSubstituicao(site));
+
+                                        site.RespBody = await response.SendFileAsync(pathDiretorioArquivo, pathAbsolutoUrlAtual.TrimStart('/'), context.RequestAborted);
+                                    }
+
+                                    if (!response.HasStarted)
+                                    {
+                                        List<string> propsHeaders = [];
+                                        using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), urlDestino);
+                                        Dictionary<string, StringValues> headersReq = request.Headers
+                                                .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
+                                            .ToDictionary();
+
+                                        if (request.Body.CanRead && string.IsNullOrEmpty(site.ReqBody))
+                                        {
+                                            request.EnableBuffering();
+                                            using var streamReader = new StreamReader(request.Body);
+
+                                            site.ReqBody = await streamReader.ReadToEndAsync(context.RequestAborted);
                                         }
 
-                                        requestMessage.Headers.TryAddWithoutValidation(header.Key, valores);
-
-                                        if (requestMessage.Content != null && propsHeaders.Contains(header.Key.Replace("-", "")))
-                                        { requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valores); }
-                                    }
-
-                                    if (ipRemotoFw != null && ipRemotoFw.Length > 0 && ipRemotoFw != Site.IpLocal)
-                                    {
-                                        foreach (var header in headersIpFw.Where(h => !requestMessage.Headers.TryGetValues(h, out _)).Reverse())
-                                        { requestMessage.Headers.TryAddWithoutValidation(header, ipRemotoFw); }
-                                    }
-
-                                    site.ReqHeaders = JsonConvert.SerializeObject(requestMessage.Headers.NonValidated.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
-
-                                    using SocketsHttpHandler socketsHttpHandler = new()
-                                    {
-                                        ConnectTimeout = TimeSpan.FromSeconds(5),
-                                        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
-                                        AutomaticDecompression = DecompressionMethods.None,
-                                        UseCookies = false,
-                                        AllowAutoRedirect = false,
-                                        UseProxy = site.UsarProxy,
-                                        SslOptions = new SslClientAuthenticationOptions()
-                                    };
-
-                                    if (site.IgnorarCertificadoDestino || context.Connection.ClientCertificate != null)
-                                    {
-                                        socketsHttpHandler.SslOptions = new SslClientAuthenticationOptions();
-                                        if (site.IgnorarCertificadoDestino) { socketsHttpHandler.SslOptions.RemoteCertificateValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true; }
-                                        if (context.Connection.ClientCertificate != null) { socketsHttpHandler.SslOptions.ClientCertificates = [ObterCertificado(context.Connection.ClientCertificate.Subject)]; }
-                                    }
-
-                                    try
-                                    {
-                                        using HttpClient httpClient = new(socketsHttpHandler);
-                                        if (site.SegundosTempoMax > 0) { httpClient.Timeout = TimeSpan.FromSeconds(site.SegundosTempoMax); }
-                                        using HttpResponseMessage responseDestino = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
-                                        using HttpContent content = responseDestino.Content;
-                                        Dictionary<string, string[]> headersResposta = content.Headers.Concat(responseDestino.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
-                                                .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase))).ToDictionary();
-
-                                        response.StatusCode = (int)responseDestino.StatusCode;
-
-                                        if (site.UrlsDestinos.Length <= 1 || response.StatusCode < (int)HttpStatusCode.BadRequest)
+                                        if (!string.IsNullOrEmpty(site.ReqBody))
                                         {
-                                            site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
-                                            headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
+                                            requestMessage.Content = new StreamContent(new MemoryStream(Encoding.UTF8.GetBytes(site.ReqBody)));
 
-                                            foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
-                                            { if (!response.Headers.TryAdd(header.Key, header.Value)) { response.Headers.Append(header.Key, header.Value); } }
+                                            foreach (var item in requestMessage.Content.Headers.GetType().GetProperties()) { propsHeaders.Add(item.Name); }
+                                        }
 
-                                            if (response.Headers.Location.Count == 0)
+                                        headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
+
+                                        foreach (var header in headersReq.Where(h => h.Value.Count != 0))
+                                        {
+                                            string[] valores = [];
+
+                                            foreach (var valor in header.Value)
                                             {
-                                                absolutePathUrlOrigemRedirect = null;
+                                                var valorTemp = valor;
 
-                                                if (response.Body.CanWrite)
-                                                {
-                                                    using MemoryStream memoryStream = new();
-                                                    await using Stream streamContentResp = await content.ReadAsStreamAsync(context.RequestAborted);
-
-                                                    await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, response.Body], context.RequestAborted);
-                                                    site.RespBody = (await memoryStream.BodyAsStringAsync(content.Headers.ContentType?.MediaType, response.Headers.ContentEncoding, context.RequestAborted)).ProcessarStringSubstituicao(site);
-                                                }
+                                                if (valorTemp != null) { valorTemp = CookieMicroproxyRegex().Replace(valorTemp, ""); valores = [.. valores.Append(valorTemp)]; }
                                             }
-                                            else
+
+                                            requestMessage.Headers.TryAddWithoutValidation(header.Key, valores);
+
+                                            if (requestMessage.Content != null && propsHeaders.Contains(header.Key.Replace("-", "")))
+                                            { requestMessage.Content.Headers.TryAddWithoutValidation(header.Key, valores); }
+                                        }
+
+                                        if (ipRemotoFw != null && ipRemotoFw.Length > 0 && ipRemotoFw != Site.IpLocal)
+                                        {
+                                            foreach (var header in headersIpFw.Where(h => !requestMessage.Headers.TryGetValues(h, out _)).Reverse())
+                                            { requestMessage.Headers.TryAddWithoutValidation(header, ipRemotoFw); }
+                                        }
+
+                                        site.ReqHeaders = JsonConvert.SerializeObject(requestMessage.Headers.NonValidated.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
+
+                                        using SocketsHttpHandler socketsHttpHandler = new()
+                                        {
+                                            MaxResponseDrainSize = 30 * 1024 * 1024,
+                                            //ConnectTimeout = TimeSpan.FromSeconds(5),
+                                            //PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+                                            AutomaticDecompression = DecompressionMethods.None,
+                                            UseCookies = false,
+                                            AllowAutoRedirect = false,
+                                            UseProxy = site.UsarProxy,
+                                            SslOptions = new SslClientAuthenticationOptions()
+                                        };
+
+                                        if (site.IgnorarCertificadoDestino || context.Connection.ClientCertificate != null)
+                                        {
+                                            socketsHttpHandler.SslOptions = new SslClientAuthenticationOptions();
+                                            if (site.IgnorarCertificadoDestino) { socketsHttpHandler.SslOptions.RemoteCertificateValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true; }
+                                            if (context.Connection.ClientCertificate != null) { socketsHttpHandler.SslOptions.ClientCertificates = [ObterCertificado(context.Connection.ClientCertificate.Subject)]; }
+                                        }
+
+                                        try
+                                        {
+                                            using HttpClient httpClient = new(socketsHttpHandler);
+                                            if (site.SegundosTempoMax > 0) { httpClient.Timeout = TimeSpan.FromSeconds(site.SegundosTempoMax); }
+                                            using HttpResponseMessage responseDestino = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
+                                            using HttpContent content = responseDestino.Content;
+                                            Dictionary<string, string[]> headersResposta = content.Headers.Concat(responseDestino.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
+                                                    .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase))).ToDictionary();
+
+                                            response.StatusCode = (int)responseDestino.StatusCode;
+
+                                            if (site.UrlsDestinos.Length <= 1 || response.StatusCode < (int)HttpStatusCode.BadRequest)
                                             {
-                                                if (absolutePathUrlOrigemRedirect == null) { absolutePathUrlOrigemRedirect = pathAbsolutoUrlAtual; }
+                                                site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
+                                                headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
+
+                                                foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
+                                                { if (!response.Headers.TryAdd(header.Key, header.Value)) { response.Headers.Append(header.Key, header.Value); } }
+
+                                                if (response.Headers.Location.Count == 0)
+                                                {
+                                                    absolutePathUrlOrigemRedirect = null;
+
+                                                    if (response.Body.CanWrite)
+                                                    {
+                                                        using MemoryStream memoryStream = new();
+                                                        await using Stream streamContentResp = await content.ReadAsStreamAsync(context.RequestAborted);
+
+                                                        await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, response.Body], context.RequestAborted);
+                                                        site.RespBody = (await memoryStream.BodyAsStringAsync(content.Headers.ContentType?.MediaType, response.Headers.ContentEncoding, context.RequestAborted)).ProcessarStringSubstituicao(site);
+                                                    }
+                                                }
                                                 else
                                                 {
-                                                    if (CharReservadosUrlRegex().Replace(pathAbsolutoUrlAtual, "/")
-                                                            .StartsWith(CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/")))
+                                                    if (absolutePathUrlOrigemRedirect == null) { absolutePathUrlOrigemRedirect = pathAbsolutoUrlAtual; }
+                                                    else
                                                     {
-                                                        if (pathUrlAtual != null && CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/")
-                                                                .StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/")))
-                                                        { pathUrlAtual = null; }
-                                                    }
+                                                        if (CharReservadosUrlRegex().Replace(pathAbsolutoUrlAtual, "/")
+                                                                .StartsWith(CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/")))
+                                                        {
+                                                            if (pathUrlAtual != null && CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/")
+                                                                    .StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/")))
+                                                            { pathUrlAtual = null; }
+                                                        }
 
-                                                    absolutePathUrlOrigemRedirect = null;
+                                                        absolutePathUrlOrigemRedirect = null;
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        if (!response.HasStarted) { response.StatusCode = (int)HttpStatusCode.InternalServerError; }
+                                        catch (Exception ex)
+                                        {
+                                            if (!response.HasStarted) { response.StatusCode = (int)HttpStatusCode.InternalServerError; }
 
-                                        if (site.UrlsDestinos.Length <= 1 || response.HasStarted)
-                                        { throw new Exception(response.HasStarted ? "A requisição foi encerrada." : "Nenhuma alternativa de conexão respondeu.", ex); }
+                                            if (site.UrlsDestinos.Length <= 1 || response.HasStarted)
+                                            { throw new Exception(response.HasStarted ? "A requisição foi encerrada." : "Nenhuma alternativa de conexão respondeu.", ex); }
+                                        }
                                     }
                                 }
                             }

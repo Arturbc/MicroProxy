@@ -7,6 +7,7 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using static MicroProxy.Helpers.StreamHelper;
 
 namespace MicroProxy.Models
 {
@@ -141,22 +142,6 @@ namespace MicroProxy.Models
         public QueryString QueryString { get; private set; }
         public string Method { get; private set; } = null!;
         public bool IsHttps => Body.BaseStream is SslStream;
-
-        private static string ReadLine(BodyStream stream)
-        {
-            StringBuilder stringBuilder = new();
-            var buffer = new byte[1];
-
-            do
-            {
-                var bytesRead = stream.Read(buffer);
-
-                if (bytesRead != 0 && buffer[0] != '\n') { if (buffer[0] != '\r') { stringBuilder.Append((char)buffer[0]); } }
-                else { buffer[0] = (byte)'\n'; }
-            } while (buffer[0] != '\n');
-
-            return stringBuilder.ToString();
-        }
 
         public void EnableBuffering()
         {
@@ -345,9 +330,7 @@ namespace MicroProxy.Models
             if (_httpPacote is HttpResponseFromListener httpResponse && !httpResponse.HasStarted)
             {
                 httpResponse.GetType().GetProperty(nameof(httpResponse.HasStarted))!.SetValue(httpResponse, true);
-                return $"{_httpPacote.HttpContext.Request.Protocol} {httpResponse.StatusCode} {(HttpStatusCode)httpResponse.StatusCode}\r\n" +
-                    string.Join("", httpResponse.Headers.Select(h => $"{h.Key}: {h.Value}\r\n")) +
-                    "\r\n";
+                return MontarCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode, httpResponse.Headers);
             }
 
             return "";
