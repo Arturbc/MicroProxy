@@ -6,6 +6,7 @@ using Newtonsoft.Json;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Mime;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -32,8 +33,8 @@ namespace MicroProxy.Models
         }
         private static string[] HeadersProibidos => [];
         private static string[] HeadersProibidosReq => [];
-        private static string[] HeadersProibidosResp => ["Transfer-Encoding", "Connection", "keep-alive", "Proxy-Authenticate",
-            "Proxy-Authorization", "Te", "Trailer", "Upgrade"];
+        private static string[] HeadersProibidosResp => ["transfer-encoding", "connection", "keep-alive", "proxy-authenticate",
+            "proxy-authorization", "te", "trailer", "upgrade"];
         private static readonly Lock _lock = new();
         public static readonly HttpContextFromListenerAccessor HttpContextAccessor = new();
         private static ISession? Sessao => HttpContextAccessor.HttpContext?.Session;
@@ -354,26 +355,28 @@ namespace MicroProxy.Models
 
                                     site.ReqHeaders = JsonConvert.SerializeObject(requestMessage.Headers.NonValidated.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
 
-                                    using HttpClientHandler clientHandler = new() { AllowAutoRedirect = false, UseProxy = site.UsarProxy };
-
-                                    if (site.IgnorarCertificadoDestino)
+                                    using SocketsHttpHandler socketsHttpHandler = new()
                                     {
-                                        clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
-                                        clientHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true;
-                                    }
+                                        ConnectTimeout = TimeSpan.FromSeconds(5),
+                                        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+                                        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+                                        AutomaticDecompression = DecompressionMethods.None,
+                                        UseCookies = false,
+                                        AllowAutoRedirect = false,
+                                        UseProxy = site.UsarProxy,
+                                        SslOptions = new SslClientAuthenticationOptions()
+                                    };
 
-                                    if (context.Connection.ClientCertificate != null)
+                                    if (site.IgnorarCertificadoDestino || context.Connection.ClientCertificate != null)
                                     {
-                                        var certificado = ObterCertificado(context.Connection.ClientCertificate.Subject);
-
-                                        clientHandler.ClientCertificates.Add(certificado);
-                                        clientHandler.ClientCertificateOptions = ClientCertificateOption.Manual;
-                                        clientHandler.SslProtocols = System.Security.Authentication.SslProtocols.Tls12;
+                                        socketsHttpHandler.SslOptions = new SslClientAuthenticationOptions();
+                                        if (site.IgnorarCertificadoDestino) { socketsHttpHandler.SslOptions.RemoteCertificateValidationCallback = (httpRequestMessage, cert, cetChain, policyErros) => true; }
+                                        if (context.Connection.ClientCertificate != null) { socketsHttpHandler.SslOptions.ClientCertificates = [ObterCertificado(context.Connection.ClientCertificate.Subject)]; }
                                     }
 
                                     try
                                     {
-                                        using HttpClient httpClient = new(clientHandler);
+                                        using HttpClient httpClient = new(socketsHttpHandler);
                                         if (site.SegundosTempoMax > 0) { httpClient.Timeout = TimeSpan.FromSeconds(site.SegundosTempoMax); }
                                         using HttpResponseMessage responseDestino = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
                                         using HttpContent content = responseDestino.Content;
@@ -545,7 +548,7 @@ namespace MicroProxy.Models
             return null;
         }
 
-        public static Stream Decodificar(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null, CancellationToken cancellationToken = default)
+        public static Stream Decodificar(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null)
         {
             if (tipoConteudo == null
                 || tipoConteudo.StartsWith("text", StringComparison.InvariantCultureIgnoreCase)
@@ -590,7 +593,7 @@ namespace MicroProxy.Models
             {
                 conteudoResposta.Seek(0, SeekOrigin.Begin);
 
-                resultado = await new StreamReader(conteudoResposta.Decodificar(tipoConteudo, codecConteudo, cancellationToken)).ReadToEndAsync(cancellationToken);
+                resultado = await new StreamReader(conteudoResposta.Decodificar(tipoConteudo, codecConteudo)).ReadToEndAsync(cancellationToken);
             }
 
             return resultado;
