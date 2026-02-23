@@ -333,7 +333,6 @@ namespace MicroProxy.Models
                                             memory.SetLength(0);
 
                                             var serverResponse = new HttpResponseFromListener(serverStream, serverStream, context, true);
-
                                             Dictionary<string, StringValues> headersResposta = serverResponse.Headers.ToDictionary(h => h.Key, h => h.Value)
                                                     .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
                                                     .ToDictionary();
@@ -354,20 +353,20 @@ namespace MicroProxy.Models
                                                     absolutePathUrlOrigemRedirect = null;
 
                                                     try { if (response.Body.CanWrite) { await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], context.RequestAborted); } }
-                                                    catch (Exception ex)
-                                                    {
-                                                        if (!response.HasStarted) { response.StatusCode = (int)HttpStatusCode.InternalServerError; }
-
-                                                        if (site.UrlsDestinos.Length <= 1 || response.HasStarted)
-                                                        { throw new Exception(response.HasStarted ? "A requisição foi encerrada." : "Nenhuma alternativa de conexão respondeu.", ex); }
-                                                    }
+                                                    catch (Exception ex) { site.Exception = ex; }
 
                                                     await memory.FlushAsync(context.RequestAborted);
                                                     memory.Seek(0, SeekOrigin.Begin);
                                                     using StreamReader readerResp = new(memory);
                                                     site.RespBody = await readerResp.ReadToEndAsync();
 
-                                                    if (site.Exception != null) { throw new("Falha durante a resposta", site.Exception); }
+                                                    if (site.Exception != null)
+                                                    {
+                                                        if (!response.HasStarted) { response.StatusCode = (int)HttpStatusCode.InternalServerError; }
+
+                                                        if (site.UrlsDestinos.Length <= 1 || response.HasStarted)
+                                                        { throw new Exception(response.HasStarted ? "A requisição foi encerrada." : "Nenhuma alternativa de conexão respondeu.", site.Exception); }
+                                                    }
                                                 }
                                                 else
                                                 {
@@ -598,22 +597,28 @@ namespace MicroProxy.Models
         {
             byte[] buffer = new byte[tambuffer];
             int bytesRead;
+            using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
 
-            if (tambuffer == 0)
+            do
             {
-                using MemoryStream memoryStream = new();
-                await fonte.CopyToAsync(memoryStream, cancellationToken);
-                foreach (var destino in destinos) { await destino.WriteAsync(memoryStream.ToArray(), cancellationToken); }
-            }
-            else
-            {
-                while ((bytesRead = await fonte.ReadAsync(buffer, cancellationToken)) > 0)
-                { foreach (var destino in destinos) { await destino.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken); } }
-            }
+                if (tambuffer == 0)
+                {
+                    using MemoryStream memoryStream = new();
+                    await fonte.CopyToAsync(memoryStream, cancellationToken);
+                    foreach (var destino in destinos) { await destino.WriteAsync(memoryStream.ToArray(), cancellationToken); }
+                }
+                else
+                {
+                    while ((bytesRead = await fonte.ReadAsync(buffer, cancellationToken)) > 0)
+                    { foreach (var destino in destinos) { await destino.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken); } }
+                }
+
+                await Task.Delay(1, cancellationToken);
+            } while (!cts.IsCancellationRequested);
         }
+
         public static RSA CreateRsaFromPem(string pathKey, string? senha = null)
         {
-            // Remove the PEM header and footer
             RSA rsa = RSA.Create();
             string conteudoChave = File.ReadAllText(pathKey);
 

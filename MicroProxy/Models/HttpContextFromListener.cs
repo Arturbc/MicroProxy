@@ -108,7 +108,7 @@ namespace MicroProxy.Models
         internal HttpRequestFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context, CancellationToken cancellationToken = default) : base(context)
         {
             string[] methodsSemBody = [HttpMethods.Head, HttpMethods.Get, HttpMethods.Connect, HttpMethods.Delete, HttpMethods.Trace];
-            var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
             Body = new(stream, clientStream, this, true, false);
             string[] req = LerCabecalhoPacote(Body, clientStream, Headers, cts.Token);
 
@@ -162,7 +162,7 @@ namespace MicroProxy.Models
         {
             if (clonarContext)
             {
-                var cts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
                 Body = new(stream, clientStream, this, true);
                 string[] resp = LerCabecalhoPacote(Body, clientStream, Headers, cts.Token);
 
@@ -315,7 +315,7 @@ namespace MicroProxy.Models
         public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             var cabecalho = MontarCabecalho();
-            var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
 
             _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
             if (!string.IsNullOrEmpty(cabecalho)) { await BaseStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cts.Token); }
