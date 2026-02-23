@@ -96,6 +96,7 @@ foreach (var (listener, certificado) in tcpListeners)
             try { configuracao = new(); } catch { }
             var tarefa = Task.Run(async () =>
             {
+                bool httpContextStarted = false;
                 IPEndPoint? ipRemoto = null;
                 IPEndPoint? ipLocal = null;
                 try
@@ -120,6 +121,7 @@ foreach (var (listener, certificado) in tcpListeners)
 
                             using var scope = app.Services.CreateScope();
                             using HttpContextFromListener context = new(streamEmUso, clientStream, app.Lifetime.ApplicationStopping);
+                            httpContextStarted = true;
                             ExibirLog($"URL de conexão solicitado: {new Uri(context.Request.GetDisplayUrl()).Authority}");
                             var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();
                             accessor.HttpContext = context;
@@ -132,23 +134,27 @@ foreach (var (listener, certificado) in tcpListeners)
                 }
                 catch (Exception ex)
                 {
-                    List<string> erros = [];
-                    var e = ex;
-
-                    while (e != null)
+                    if (httpContextStarted)
                     {
-                        erros.Add($"[{e.GetType().FullName}] {e.Message}");
-                        if (!string.IsNullOrEmpty(e.StackTrace)) { erros.Add(e.StackTrace.Replace(" at ", "\nat ") + "\n"); }
-                        e = e.InnerException;
-                    }
+                        List<string> erros = [];
+                        var e = ex;
 
-                    if (erros.Count > 0) { ExibirLog(erros, level: LogLevel.Error); }
+                        while (e != null)
+                        {
+                            erros.Add($"[{e.GetType().FullName}] {e.Message}");
+                            if (!string.IsNullOrEmpty(e.StackTrace)) { erros.Add(e.StackTrace.Replace(" at ", "\nat ") + "\n"); }
+                            e = e.InnerException;
+                        }
+
+                        if (erros.Count > 0) { ExibirLog(erros, level: LogLevel.Error); }
+                    }
                 }
 
                 ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {--tarefas})");
             });
 
-            do { await Task.WhenAny(tarefa, Task.Delay(100)); } while (!tarefa.IsCompleted && clientStream.DataAvailable);
+            do { await Task.WhenAny(tarefa, Task.Delay(100, app.Lifetime.ApplicationStopping)); }
+            while (!tarefa.IsCompleted && clientStream.DataAvailable);
         }
     }));
 }

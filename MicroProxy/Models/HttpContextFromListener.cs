@@ -117,7 +117,7 @@ namespace MicroProxy.Models
             {
                 string linha = ReadLine(Body);
                 if (!string.IsNullOrEmpty(linha)) { req = linha.Split(' '); }
-                else { Task.Delay(1, cts.Token); }
+                else { Task.Delay(1, cts.Token); cts.Token.ThrowIfCancellationRequested(); }
             } while (!clientStream.DataAvailable && req.Length != 3);
 
             do
@@ -216,6 +216,7 @@ namespace MicroProxy.Models
             var cabecalho = MontarCabecalho();
             HasStarted = true;
             if (!string.IsNullOrEmpty(cabecalho)) { await Body.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), default); }
+            await Body.FlushAsync(HttpContext.RequestAborted);
         }
 
         private string MontarCabecalho()
@@ -307,7 +308,7 @@ namespace MicroProxy.Models
 
                     if (read == 0 && _buffer == null)
                     {
-                        await Task.Delay(1, cts.Token);
+                        await Task.Delay(1, cts.Token); cts.Token.ThrowIfCancellationRequested();
                         maxBuffer = Math.Min(_clientStream.Socket.Available, buffer.Length);
                     }
                 } while (read == 0 && _buffer == null);
@@ -331,11 +332,12 @@ namespace MicroProxy.Models
         public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             var cabecalho = MontarCabecalho();
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
 
             _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
-            if (!string.IsNullOrEmpty(cabecalho)) { await BaseStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cancellationToken); }
+            if (!string.IsNullOrEmpty(cabecalho)) { await BaseStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cts.Token); }
 
-            await BaseStream.WriteAsync(buffer, cancellationToken);
+            await BaseStream.WriteAsync(buffer, cts.Token);
         }
 
         private string MontarCabecalho()
