@@ -359,7 +359,6 @@ namespace MicroProxy.Models
                                     {
                                         ConnectTimeout = TimeSpan.FromSeconds(5),
                                         PooledConnectionLifetime = TimeSpan.FromMinutes(10),
-                                        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
                                         AutomaticDecompression = DecompressionMethods.None,
                                         UseCookies = false,
                                         AllowAutoRedirect = false,
