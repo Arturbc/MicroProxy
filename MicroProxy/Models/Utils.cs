@@ -307,7 +307,7 @@ namespace MicroProxy.Models
                                 if (!response.HasStarted)
                                 {
                                     List<string> propsHeaders = [];
-                                    using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), site.UrlDestino);
+                                    using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), urlDestino);
                                     Dictionary<string, StringValues> headersReq = request.Headers
                                             .Where(hr => !HeadersProibidos.Union(HeadersProibidosReq).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
                                         .ToDictionary();

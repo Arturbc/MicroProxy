@@ -196,10 +196,10 @@ namespace MicroProxy.Models
         {
             string urlAjustada = url.TrimEnd('/');
 
-            if (HttpContext != null && !HttpMethods.IsConnect(HttpContext.Request.Method))
+            if (!HttpMethods.IsConnect(HttpContext?.Request.Method ?? ""))
             {
                 if (!urlAjustada.StartsWith("http", StringComparison.InvariantCultureIgnoreCase)) { urlAjustada = $"http://{urlAjustada}"; }
-                if (HttpContext.Request.GetDisplayUrl().EndsWith('/')) { urlAjustada += '/'; }
+                if (HttpContext != null && HttpContext.Request.GetDisplayUrl().EndsWith('/')) { urlAjustada += '/'; }
             }
 
             return urlAjustada;

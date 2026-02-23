@@ -106,7 +106,7 @@ foreach (var (listener, certificado) in tcpListeners)
                         .CreateLinkedTokenSource(new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token, app.Lifetime.ApplicationStopping);
                     ipRemoto = (IPEndPoint)clientStream.Socket.RemoteEndPoint!;
                     ipLocal = (IPEndPoint)clientStream.Socket.LocalEndPoint!;
-                    ExibirLog($"Cliente {ipRemoto} conectado a {ipLocal}... (Tarefa ativas: {++tarefas})");
+                    ExibirLog($"Cliente {ipRemoto} conectado a {ipLocal}... (Conexões ativas: {++tarefas})");
 
                     while (!cts.IsCancellationRequested)
                     {
@@ -145,7 +145,7 @@ foreach (var (listener, certificado) in tcpListeners)
                     if (erros.Count > 0) { ExibirLog(erros, level: LogLevel.Error); }
                 }
 
-                ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Tarefa ativas: {--tarefas})");
+                ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {--tarefas})");
             });
 
             do { await Task.WhenAny(tarefa, Task.Delay(100)); } while (!tarefa.IsCompleted && clientStream.DataAvailable);
