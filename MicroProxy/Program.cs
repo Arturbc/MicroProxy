@@ -1,3 +1,4 @@
+using MicroProxy.Extensions;
 using MicroProxy.Models;
 using System.Net;
 using System.Net.Security;
@@ -134,7 +135,7 @@ foreach (var (listener, certificado) in tcpListeners)
                 }
                 catch (Exception ex)
                 {
-                    if (httpContextStarted)
+                    if (httpContextStarted || !ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)]))
                     {
                         List<string> erros = [];
                         var e = ex;
