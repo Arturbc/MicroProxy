@@ -7,7 +7,7 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
-using static MicroProxy.Helpers.StreamHelper;
+using static MicroProxy.Helpers.HttpHelper;
 
 namespace MicroProxy.Models
 {
@@ -37,7 +37,7 @@ namespace MicroProxy.Models
     {
         public HttpContextFromListener(Stream stream, NetworkStream clientStream, CancellationToken cancellationToken = default)
         {
-            Request = new(stream, clientStream, this);
+            Request = new(stream, clientStream, this, cancellationToken);
             Response = new(stream, clientStream, this);
             Connection = new(clientStream.Socket,
                 stream is SslStream ssl && ssl.RemoteCertificate != null ? new X509Certificate2(ssl.RemoteCertificate) : null);
@@ -105,27 +105,12 @@ namespace MicroProxy.Models
 
     public class HttpRequestFromListener : HttpPacoteFromListener
     {
-        internal HttpRequestFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context) : base(context)
+        internal HttpRequestFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context, CancellationToken cancellationToken = default) : base(context)
         {
             string[] methodsSemBody = [HttpMethods.Head, HttpMethods.Get, HttpMethods.Connect, HttpMethods.Delete, HttpMethods.Trace];
-            string[] req = [];
-            string[] header;
-            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
             Body = new(stream, clientStream, this, true, false);
-
-            do
-            {
-                string linha = ReadLine(Body);
-                if (!string.IsNullOrEmpty(linha)) { req = linha.Split(' '); }
-                else { Task.Delay(1, cts.Token); cts.Token.ThrowIfCancellationRequested(); }
-            } while (!clientStream.DataAvailable && req.Length != 3);
-
-            do
-            {
-                header = ReadLine(Body).Split(": ") ?? [];
-                if (header.Length > 1) { Headers.Append(header[0], new(header[1])); }
-            } while (header.Length > 1);
+            string[] req = LerCabecalhoPacote(Body, clientStream, Headers, cts.Token);
 
             uri = new(req[1].Contains("://") || req[1].StartsWith('/') ? req[1] : "http://" + req[1], UriKind.RelativeOrAbsolute);
             Method = req[0];
@@ -173,11 +158,25 @@ namespace MicroProxy.Models
 
     public class HttpResponseFromListener : HttpPacoteFromListener
     {
-        internal HttpResponseFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context) : base(context)
-        { Body = new(stream, clientStream, this, !HttpMethods.IsHead(HttpContext.Request.Method)); }
+        internal HttpResponseFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context, bool clonarContext = false) : base(context)
+        {
+            if (clonarContext)
+            {
+                var cts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
+                Body = new(stream, clientStream, this, true);
+                string[] resp = LerCabecalhoPacote(Body, clientStream, Headers, cts.Token);
 
-        public int StatusCode { get; set; } = (int)HttpStatusCode.OK;
-        public bool HasStarted { get; private set; }
+                StatusCode = int.Parse(resp[1]);
+            }
+            else
+            {
+                Body = new(stream, clientStream, this, !HttpMethods.IsHead(HttpContext.Request.Method));
+                StatusCode = (int)HttpStatusCode.OK;
+            }
+        }
+
+        public int StatusCode { get; set; }
+        public bool HasStarted { get; protected set; }
         public StringValues ContentType { get => Headers.ContentType; set => Headers.ContentType = value; }
         public long? ContentLength { get => Headers.ContentLength; set => Headers.ContentLength = value; }
 
@@ -199,7 +198,6 @@ namespace MicroProxy.Models
         public async Task CompleteAsync()
         {
             var cabecalho = MontarCabecalho();
-            HasStarted = true;
             if (!string.IsNullOrEmpty(cabecalho)) { await Body.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), default); }
             await Body.FlushAsync(HttpContext.RequestAborted);
         }
@@ -293,7 +291,7 @@ namespace MicroProxy.Models
 
                     if (read == 0 && _buffer == null)
                     {
-                        await Task.Delay(1, cts.Token); cts.Token.ThrowIfCancellationRequested();
+                        await Task.Delay(1, cts.Token);
                         maxBuffer = Math.Min(_clientStream.Socket.Available, buffer.Length);
                     }
                 } while (read == 0 && _buffer == null);
