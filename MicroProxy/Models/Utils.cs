@@ -30,9 +30,10 @@ namespace MicroProxy.Models
                 return null;
             }
         }
-        private static string[] HeadersProibidos => ["Transfer-Encoding"];
+        private static string[] HeadersProibidos => [];
         private static string[] HeadersProibidosReq => [];
-        private static string[] HeadersProibidosResp => [];
+        private static string[] HeadersProibidosResp => ["Transfer-Encoding", "Connection", "keep-alive", "Proxy-Authenticate",
+            "Proxy-Authorization", "Te", "Trailer", "Upgrade"];
         private static readonly Lock _lock = new();
         public static readonly HttpContextFromListenerAccessor HttpContextAccessor = new();
         private static ISession? Sessao => HttpContextAccessor.HttpContext?.Session;
@@ -91,7 +92,9 @@ namespace MicroProxy.Models
 
         public static async Task ProcessarRequisicaoAsync(this HttpContextFromListener context, Configuracao configuracao)
         {
+            List<Task> tarefasAsync = [];
             var request = context.Request;
+            var response = context.Response;
             Uri urlAtual = new(request.GetDisplayUrl());
             Site? site = null;
             bool tratarUrl = !HttpMethods.IsGet(request.Method) || !Path.HasExtension(urlAtual.AbsolutePath) || configuracao.ExtensoesUrlNaoRecurso
@@ -104,7 +107,7 @@ namespace MicroProxy.Models
 
                 if (configuracao.IpsBloqueados.Contains(ipRemotoFw))
                 {
-                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    response.StatusCode = StatusCodes.Status403Forbidden;
                     await Task.FromResult<object?>(null);
                     return;
                 }
@@ -184,13 +187,13 @@ namespace MicroProxy.Models
                         {
                             pathUrlAtual = null;
                             absolutePathUrlOrigemRedirect = null;
-                            context.Response.RedirectPreserveMethod("/");
+                            response.RedirectPreserveMethod("/");
                         }
                     }
-                    else { if (site != null) { context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed; } }
+                    else { if (site != null) { response.StatusCode = StatusCodes.Status405MethodNotAllowed; } }
                 }
 
-                if (site != null && context.Response.StatusCode == StatusCodes.Status200OK)
+                if (site != null && response.StatusCode == StatusCodes.Status200OK)
                 {
                     do
                     {
@@ -225,7 +228,7 @@ namespace MicroProxy.Models
                             else if (!pathUrlAtualTemp.StartsWith('/')) { pathUrlAtualTemp = '/' + pathUrlAtualTemp; }
                         }
 
-                        if (pathUrlAtualTemp != pathUrlCliente) { absolutePathUrlOrigemRedirect = pathUrlCliente; context.Response.RedirectPreserveMethod(pathUrlAtualTemp); }
+                        if (pathUrlAtualTemp != pathUrlCliente) { absolutePathUrlOrigemRedirect = pathUrlCliente; response.RedirectPreserveMethod(pathUrlAtualTemp); }
                         else
                         {
                             site.UrlDestino = $"{urlDestino.Scheme}://{urlDestino.Authority}";
@@ -252,7 +255,7 @@ namespace MicroProxy.Models
                             }
                         }
 
-                        if (context.Response.StatusCode == StatusCodes.Status200OK)
+                        if (response.StatusCode == StatusCodes.Status200OK)
                         {
                             site.InicializarExecutavel();
                             pathUrlDestino ??= site.PathAtualSubstituto.TrimEnd('/') + pathUrlCliente;
@@ -267,25 +270,20 @@ namespace MicroProxy.Models
                                 {
                                     using var serverTcp = new TcpClient(host, porta);
 
-                                    context.Response.Headers.Connection = "close";
+                                    response.Headers.Connection = "close";
                                     await using var serverStream = serverTcp.GetStream();
-                                    var pump1 = context.Response.Body.BaseStream.CopyToAsync(site.BufferResp, [serverStream], context.RequestAborted);
-                                    var pump2 = serverStream.CopyToAsync(site.BufferResp, [context.Response.Body.BaseStream], context.RequestAborted);
-
-                                    await context.Response.CompleteAsync();
-                                    await Task.WhenAny(pump1, pump2);
+                                    tarefasAsync.Add(response.Body.BaseStream.CopyToAsync(site.BufferResp, [serverStream], context.RequestAborted));
+                                    tarefasAsync.Add(serverStream.CopyToAsync(site.BufferResp, [response.Body.BaseStream], context.RequestAborted));
                                 }
-                                catch { context.Response.StatusCode = StatusCodes.Status502BadGateway; }
+                                catch { response.StatusCode = StatusCodes.Status502BadGateway; }
                             }
                             else if (HttpMethods.IsOptions(request.Method))
                             {
                                 var tipoSite = site.GetType();
-                                context.Response.StatusCode = (int)HttpStatusCode.NoContent;
-                                context.Response.Headers.Append("Access-Control-Allow-Headers", configuracao.AllowHeaders);
-                                context.Response.Headers.Append("Access-Control-Allow-Methods", configuracao.AllowMethods);
-                                context.Response.Headers.Append("Access-Control-Allow-Origin", configuracao.AllowOrigins);
-
-                                await context.Response.CompleteAsync();
+                                response.StatusCode = (int)HttpStatusCode.NoContent;
+                                response.Headers.Append("Access-Control-Allow-Headers", configuracao.AllowHeaders);
+                                response.Headers.Append("Access-Control-Allow-Methods", configuracao.AllowMethods);
+                                response.Headers.Append("Access-Control-Allow-Origin", configuracao.AllowOrigins);
                             }
                             else
                             {
@@ -303,10 +301,10 @@ namespace MicroProxy.Models
                                 {
                                     string pathDiretorioArquivo = Site.ProcessarPath(configuracao.ArquivosEstaticos.ProcessarStringSubstituicao(site));
 
-                                    site.RespBody = await context.Response.SendFileAsync(site, pathDiretorioArquivo, pathAbsolutoUrlAtual.TrimStart('/'), context.RequestAborted);
+                                    site.RespBody = await response.SendFileAsync(pathDiretorioArquivo, pathAbsolutoUrlAtual.TrimStart('/'), context.RequestAborted);
                                 }
 
-                                if (!context.Response.HasStarted)
+                                if (!response.HasStarted)
                                 {
                                     List<string> propsHeaders = [];
                                     using HttpRequestMessage requestMessage = new(HttpMethod.Parse(request.Method), site.UrlDestino);
@@ -377,31 +375,33 @@ namespace MicroProxy.Models
                                     {
                                         using HttpClient httpClient = new(clientHandler);
                                         if (site.SegundosTempoMax > 0) { httpClient.Timeout = TimeSpan.FromSeconds(site.SegundosTempoMax); }
-                                        using HttpResponseMessage response = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
-                                        using HttpContent content = response.Content;
-                                        Dictionary<string, string[]> headersResposta = response.Headers.Union(response.Content.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
+                                        using HttpResponseMessage responseDestino = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
+                                        using HttpContent content = responseDestino.Content;
+                                        Dictionary<string, string[]> headersResposta = content.Headers.Concat(responseDestino.Headers).ToDictionary(h => h.Key, h => h.Value.ToArray())
                                                 .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase))).ToDictionary();
 
-                                        context.Response.StatusCode = (int)response.StatusCode;
+                                        response.StatusCode = (int)responseDestino.StatusCode;
 
-                                        if (site.UrlsDestinos.Length <= 1 || context.Response.StatusCode < (int)HttpStatusCode.BadRequest)
+                                        if (site.UrlsDestinos.Length <= 1 || response.StatusCode < (int)HttpStatusCode.BadRequest)
                                         {
                                             site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
                                             headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
 
                                             foreach (var header in headersResposta.Where(h => h.Value.Length != 0))
-                                            { if (!context.Response.Headers.TryAdd(header.Key, header.Value)) { context.Response.Headers.Append(header.Key, header.Value); } }
+                                            { if (!response.Headers.TryAdd(header.Key, header.Value)) { response.Headers.Append(header.Key, header.Value); } }
 
-                                            if (context.Response.Headers.Location.Count == 0)
+                                            if (response.Headers.Location.Count == 0)
                                             {
                                                 absolutePathUrlOrigemRedirect = null;
 
-                                                using MemoryStream memoryStream = new();
-                                                await using Stream streamContentResp = await content.ReadAsStreamAsync(context.RequestAborted);
+                                                if (response.Body.CanWrite)
+                                                {
+                                                    using MemoryStream memoryStream = new();
+                                                    await using Stream streamContentResp = await content.ReadAsStreamAsync(context.RequestAborted);
 
-                                                await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, context.Response.Body], context.RequestAborted);
-                                                site.RespBody = await site.BodyAsStringAsync(memoryStream, content.Headers.ContentType?.MediaType
-                                                    , content.Headers.ContentEncoding.FirstOrDefault(), context.RequestAborted);
+                                                    await streamContentResp.CopyToAsync(site.BufferResp, [memoryStream, response.Body], context.RequestAborted);
+                                                    site.RespBody = (await memoryStream.BodyAsStringAsync(content.Headers.ContentType?.MediaType, response.Headers.ContentEncoding, context.RequestAborted)).ProcessarStringSubstituicao(site);
+                                                }
                                             }
                                             else
                                             {
@@ -423,15 +423,15 @@ namespace MicroProxy.Models
                                     }
                                     catch (Exception ex)
                                     {
-                                        if (!context.Response.HasStarted) { context.Response.StatusCode = (int)HttpStatusCode.InternalServerError; }
+                                        if (!response.HasStarted) { response.StatusCode = (int)HttpStatusCode.InternalServerError; }
 
-                                        if (site.UrlsDestinos.Length <= 1 || context.Response.HasStarted)
-                                        { throw new Exception(context.Response.HasStarted ? "A requisição foi encerrada." : "Nenhuma alternativa de conexão respondeu.", ex); }
+                                        if (site.UrlsDestinos.Length <= 1 || response.HasStarted)
+                                        { throw new Exception(response.HasStarted ? "A requisição foi encerrada." : "Nenhuma alternativa de conexão respondeu.", ex); }
                                     }
                                 }
                             }
                         }
-                    } while (site.UrlsDestinos.Length > 1 && context.Response.StatusCode >= (int)HttpStatusCode.BadRequest);
+                    } while (site.UrlsDestinos.Length > 1 && response.StatusCode >= (int)HttpStatusCode.BadRequest);
                 }
 
                 PathUrlAtual = pathUrlAtual;
@@ -442,29 +442,31 @@ namespace MicroProxy.Models
                 site ??= new();
                 site.Exception = new("A requisição foi encerrada prematuramente.", ex);
 
-                if (!context.Response.HasStarted)
+                if (!response.HasStarted)
                 {
-                    context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                    response.StatusCode = StatusCodes.Status500InternalServerError;
 
                     if (configuracao.TratamentoErroInterno != null && configuracao.TratamentoErroInterno != "")
                     {
                         string pathArquivo = Site.ProcessarPath(configuracao.TratamentoErroInterno.ProcessarStringSubstituicao(site));
                         string[] partesPath = CharSeparadorDiretorioUrlRegex().Split(pathArquivo);
 
-                        site.RespBody = await context.Response
-                            .SendFileAsync(site, string.Join(Path.DirectorySeparatorChar, partesPath[0..(partesPath.Length - 1)]),
+                        site.RespBody = await response
+                            .SendFileAsync(string.Join(Path.DirectorySeparatorChar, partesPath[0..(partesPath.Length - 1)]),
                                 Path.GetFileName(configuracao.TratamentoErroInterno), context.RequestAborted);
                     }
 
-                    if (!context.Response.HasStarted)
+                    if (!response.HasStarted)
                     {
-                        context.Response.Headers.ContentType = MediaTypeNames.Text.Html;
-                        await context.Response.WriteAsync($"<!DOCTYPE html><html><head><meta charset=\"utf-8\" /><title>Erro {context.Response.StatusCode}</title></head>" +
-                            $"<body><h1>Erro {context.Response.StatusCode}</h1>{site.ExceptionMensagem?.ReplaceLineEndings("<br>")}</body></html>", context.RequestAborted);
+                        response.Headers.ContentType = MediaTypeNames.Text.Html;
+                        await response.WriteAsync($"<!DOCTYPE html><html><head><meta charset=\"utf-8\" /><title>Erro {response.StatusCode}</title></head>" +
+                            $"<body><h1>Erro {response.StatusCode}</h1>{site.ExceptionMensagem?.ReplaceLineEndings("<br>")}</body></html>", context.RequestAborted);
                     }
                 }
             }
 
+            await response.CompleteAsync();
+            if (tarefasAsync.Count != 0) { await Task.WhenAny(tarefasAsync); }
             site ??= new();
 
             lock (_lock)
@@ -518,51 +520,38 @@ namespace MicroProxy.Models
             }
         }
 
-        public static async Task<string?> SendFileAsync(this HttpResponseFromListener httpResponse, Site site, string? pathDiretorio, string? pathArquivo, CancellationToken cancellationToken = default)
+        public static async Task<string?> SendFileAsync(this HttpResponseFromListener httpResponse, string? pathDiretorio, string? pathArquivo, CancellationToken cancellationToken = default)
         {
             if (pathDiretorio != null && pathDiretorio != "" && pathArquivo != null && pathArquivo != "")
             {
-                pathDiretorio = Site.ProcessarPath(pathDiretorio.ProcessarStringSubstituicao(site));
-                pathArquivo = pathArquivo.ProcessarStringSubstituicao(site);
                 var arquivo = new PhysicalFileProvider(pathDiretorio).GetFileInfo(pathArquivo);
 
                 if (arquivo.Exists)
                 {
                     var provedor = new FileExtensionContentTypeProvider();
-                    using var conteudoResposta = arquivo.CreateReadStream();
-                    var headersResposta = site.ProcessarHeaders(httpResponse.Headers.ToDictionary(), site.ResponseHeadersAdicionais);
-
-                    foreach (var header in headersResposta.Where(h => h.Value.ToString().Length != 0))
-                    {
-                        string[] valores = header.Value!;
-
-                        if (!httpResponse.Headers.TryAdd(header.Key, valores)) { httpResponse.Headers.Append(header.Key, valores); }
-                    }
-                    ;
+                    await using var conteudoResposta = arquivo.CreateReadStream();
 
                     httpResponse.ContentLength = arquivo.Length;
 
                     if (provedor.TryGetContentType(pathArquivo, out string? tipoConteudo)) { httpResponse.ContentType = tipoConteudo; }
 
                     await httpResponse.SendFileAsync(arquivo, cancellationToken);
-                    site.RespBody = await site.BodyAsStringAsync(conteudoResposta, tipoConteudo, cancellationToken: cancellationToken);
+                    var resultado = await conteudoResposta.BodyAsStringAsync(tipoConteudo, cancellationToken: cancellationToken);
 
-                    return site.RespBody;
+                    return resultado;
                 }
             }
 
             return null;
         }
 
-        public static async Task<string> BodyAsStringAsync(this Site site, Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null, CancellationToken cancellationToken = default)
+        public static Stream Decodificar(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null, CancellationToken cancellationToken = default)
         {
-            site.RespBody = $"Dado[{tipoConteudo}]";
-
             if (tipoConteudo == null
                 || tipoConteudo.StartsWith("text", StringComparison.InvariantCultureIgnoreCase)
                 || tipoConteudo.StartsWith("application", StringComparison.InvariantCultureIgnoreCase))
             {
-                conteudoResposta.Seek(0, SeekOrigin.Begin);
+                if (conteudoResposta.CanSeek) { conteudoResposta.Seek(0, SeekOrigin.Begin); }
 
                 if (codecConteudo != null)
                 {
@@ -586,11 +575,25 @@ namespace MicroProxy.Models
                             break;
                     }
                 }
-
-                site.RespBody = (await new StreamReader(conteudoResposta).ReadToEndAsync(cancellationToken)).ProcessarStringSubstituicao(site);
             }
 
-            return site.RespBody;
+            return conteudoResposta;
+        }
+
+        public static async Task<string> BodyAsStringAsync(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null, CancellationToken cancellationToken = default)
+        {
+            var resultado = $"Dado[{tipoConteudo}]";
+
+            if (tipoConteudo == null
+                || tipoConteudo.StartsWith("text", StringComparison.InvariantCultureIgnoreCase)
+                || tipoConteudo.StartsWith("application", StringComparison.InvariantCultureIgnoreCase))
+            {
+                conteudoResposta.Seek(0, SeekOrigin.Begin);
+
+                resultado = await new StreamReader(conteudoResposta.Decodificar(tipoConteudo, codecConteudo, cancellationToken)).ReadToEndAsync(cancellationToken);
+            }
+
+            return resultado;
         }
 
         public static Dictionary<string, string?> ColetarDicionarioVariaveis<T>(this string valor, T obj)
@@ -635,7 +638,7 @@ namespace MicroProxy.Models
             byte[] buffer = new byte[tambuffer];
             int bytesRead;
 
-            if (tambuffer <= 0)
+            if (tambuffer == 0)
             {
                 using MemoryStream memoryStream = new();
                 await fonte.CopyToAsync(memoryStream, cancellationToken);

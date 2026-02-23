@@ -20,10 +20,7 @@ namespace MicroProxy.Models
 
         public HttpContextFromListener? HttpContext
         {
-            get
-            {
-                return _httpContextCurrent.Value?.Context;
-            }
+            get { return _httpContextCurrent.Value?.Context; }
             set
             {
                 _httpContextCurrent.Value?.Context = null;
@@ -109,10 +106,19 @@ namespace MicroProxy.Models
     {
         internal HttpRequestFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context) : base(context)
         {
-            Body = new(stream, clientStream, this, true, false);
-            EnableBuffering();
-            var req = ReadLine(Body).Split(' ');
+            string[] methodsSemBody = [HttpMethods.Head, HttpMethods.Get, HttpMethods.Connect, HttpMethods.Delete, HttpMethods.Trace];
+            string[] req = [];
             string[] header;
+            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+
+            Body = new(stream, clientStream, this, true, false);
+
+            do
+            {
+                string linha = ReadLine(Body);
+                if (!string.IsNullOrEmpty(linha)) { req = linha.Split(' '); }
+                else { Task.Delay(1, cts.Token); }
+            } while (!clientStream.DataAvailable && req.Length != 3);
 
             do
             {
@@ -123,8 +129,10 @@ namespace MicroProxy.Models
             uri = new(req[1].Contains("://") || req[1].StartsWith('/') ? req[1] : "http://" + req[1], UriKind.RelativeOrAbsolute);
             Method = req[0];
             Path = uri.IsAbsoluteUri ? uri.AbsolutePath : uri.OriginalString;
-            QueryString = new QueryString(uri.IsAbsoluteUri ? uri.Query : (uri.OriginalString.Contains('?') ? uri.OriginalString.Split('?')[1] : null));
+            QueryString = new QueryString(uri.IsAbsoluteUri ? uri.Query : (uri.OriginalString.Contains('?') ? '?' + uri.OriginalString.Split('?')[1] : null));
             Protocol = req[2];
+
+            if (methodsSemBody.Contains(Method) || HttpMethods.IsGet(Method)) { Body = new(stream, clientStream, this, false, false); }
         }
 
         private readonly Uri uri;
@@ -181,7 +189,7 @@ namespace MicroProxy.Models
     public class HttpResponseFromListener : HttpPacoteFromListener
     {
         internal HttpResponseFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context) : base(context)
-        { Body = new(stream, clientStream, this, false); }
+        { Body = new(stream, clientStream, this, !HttpMethods.IsHead(HttpContext.Request.Method)); }
 
         public int StatusCode { get; set; } = (int)HttpStatusCode.OK;
         public bool HasStarted { get; private set; }
@@ -320,11 +328,14 @@ namespace MicroProxy.Models
         public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
             => WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
 
-        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             var cabecalho = MontarCabecalho();
-            var bytes = string.IsNullOrEmpty(cabecalho) ? buffer : Encoding.UTF8.GetBytes(cabecalho + Encoding.UTF8.GetString(buffer.ToArray()));
-            return BaseStream.WriteAsync(bytes, cancellationToken);
+
+            _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
+            if (!string.IsNullOrEmpty(cabecalho)) { await BaseStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cancellationToken); }
+
+            await BaseStream.WriteAsync(buffer, cancellationToken);
         }
 
         private string MontarCabecalho()
@@ -332,7 +343,7 @@ namespace MicroProxy.Models
             if (_httpPacote is HttpResponseFromListener httpResponse && !httpResponse.HasStarted)
             {
                 httpResponse.GetType().GetProperty(nameof(httpResponse.HasStarted))!.SetValue(httpResponse, true);
-                return $"HTTP/1.1 {httpResponse.StatusCode} {(HttpStatusCode)httpResponse.StatusCode}\r\n" +
+                return $"{_httpPacote.HttpContext.Request.Protocol} {httpResponse.StatusCode} {(HttpStatusCode)httpResponse.StatusCode}\r\n" +
                     string.Join("", httpResponse.Headers.Select(h => $"{h.Key}: {h.Value}\r\n")) +
                     "\r\n";
             }
