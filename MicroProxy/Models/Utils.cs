@@ -321,7 +321,7 @@ namespace MicroProxy.Models
                                                     .CreateLinkedTokenSource(context.RequestAborted, new CancellationTokenSource(TimeSpan.FromSeconds(site.SegundosTempoMax)).Token);
                                                 await serverStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho));
                                                 if (request.Body.CanRead) { await request.Body.CopyToAsync(site.BufferResp, [serverStream, memory], cts.Token); }
-                                                await serverStream.FlushAsync(context.RequestAborted);
+                                                if (serverStream.CanWrite) { await serverStream.FlushAsync(context.RequestAborted); }
                                             }
                                             catch (Exception ex) { site.Exception = ex; }
                                             await memory.FlushAsync(context.RequestAborted);
@@ -361,6 +361,7 @@ namespace MicroProxy.Models
                                                             using CancellationTokenSource cts = CancellationTokenSource
                                                                 .CreateLinkedTokenSource(context.RequestAborted, new CancellationTokenSource(TimeSpan.FromSeconds(site.SegundosTempoMax)).Token);
                                                             await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], cts.Token);
+                                                            await serverResponse.CompleteAsync();
                                                         }
                                                     }
                                                     catch (Exception ex) { site.Exception = ex; }

@@ -234,7 +234,11 @@ namespace MicroProxy.Models
         public override long Position { get => BaseStream.Position; set => BaseStream.Position = value; }
         public int DataAvailable { get; private set; }
 
-        public override void Flush() => BaseStream.Flush();
+        public override void Flush()
+        {
+            BaseStream.Flush();
+            _buffer?.Flush();
+        }
 
         public override int Read(byte[] buffer, int offset, int count) => ReadAsync(buffer, offset, count).Result;
 
@@ -274,8 +278,8 @@ namespace MicroProxy.Models
         {
             using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token, cancellationToken);
             var internalBuffer = _buffer != null && _buffer.Length > 0 ? _buffer : null;
-            int maxBuffer = internalBuffer != null ? 0 : Math.Min(DataAvailable, buffer.Length);
             int read;
+            int totalRead = 0;
 
             if (internalBuffer != null) { DataAvailable = (int)internalBuffer.Length; }
 
@@ -291,22 +295,28 @@ namespace MicroProxy.Models
                         {
                             await Task.Delay(1, cts.Token);
                             SetDataAvailable();
-                            maxBuffer = Math.Min(DataAvailable, buffer.Length);
                         }
-                        else { if (_buffer != null) { await _buffer.WriteAsync(buffer, cancellationToken); } }
+                        else { totalRead += read; if (_buffer != null) { await _buffer.WriteAsync(buffer, cancellationToken); } }
                     }
-                } while (read == 0 && internalBuffer == null);
+                } while (internalBuffer == null && totalRead < buffer.Length && (totalRead == 0 || read > 0));
             }
-            catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)]))
-            {
-                read = maxBuffer;
-                DataAvailable -= read;
-            }
+            catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)])) { }
 
-            return read;
+            return totalRead;
         }
 
-        private void SetDataAvailable() { if (DataAvailable == 0) { DataAvailable = _clientStream.Socket.Available; if (BaseStream is SslStream) { DataAvailable *= 3; } } }
+        private void SetDataAvailable()
+        {
+            if (DataAvailable == 0)
+            {
+                DataAvailable = _clientStream.Socket.Available;
+                if (BaseStream is SslStream)
+                {
+                    if (_httpPacote.Headers.ContentLength != null) { DataAvailable = (int)_httpPacote.Headers.ContentLength; }
+                    else { DataAvailable *= 3; }
+                }
+            }
+        }
 
         public override long Seek(long offset, SeekOrigin origin) => _buffer!.Seek(offset, origin);
 
