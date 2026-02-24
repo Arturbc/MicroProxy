@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Primitives;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -33,13 +34,9 @@ namespace MicroProxy.Helpers
         {
             string[] info = [];
             string[] header;
+            string linha = await ReadLineAsync(stream, cancellationToken);
 
-            do
-            {
-                string linha = await ReadLineAsync(stream, cancellationToken);
-                if (!string.IsNullOrEmpty(linha)) { info = linha.Split(' '); }
-                else { await Task.Delay(1, cancellationToken); }
-            } while (!clientStream.DataAvailable && info.Length != 3);
+            if (!string.IsNullOrEmpty(linha)) { info = linha.Split(' '); }
 
             do
             {
@@ -65,5 +62,51 @@ namespace MicroProxy.Helpers
             => $"{method} {url} {protocol}\r\n" +
                 string.Join("", headers.Select(h => $"{h.Key}: {h.Value}\r\n")) +
                 "\r\n";
+
+        public static Stream Compactar(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null,
+            CompressionLevel compressionLevel = CompressionLevel.Optimal) => conteudoResposta.ProcessarCompactacao(compressionLevel, tipoConteudo, codecConteudo);
+
+        public static Stream Extrair(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null)
+            => conteudoResposta.ProcessarCompactacao(CompressionMode.Decompress, tipoConteudo, codecConteudo);
+
+        public static Stream ProcessarCompactacao<T>(this Stream stream, T compressionMode, string? tipoConteudo = null, string? codecConteudo = null)
+            where T : Enum
+        {
+            if (compressionMode is not CompressionLevel && compressionMode is not CompressionMode) { throw new ArgumentException("Argumento inválido", nameof(compressionMode)); }
+
+            if (tipoConteudo == null
+                || tipoConteudo.StartsWith("text", StringComparison.InvariantCultureIgnoreCase)
+                || tipoConteudo.StartsWith("application", StringComparison.InvariantCultureIgnoreCase))
+            {
+                if (stream.CanSeek) { stream.Seek(0, SeekOrigin.Begin); }
+
+                if (codecConteudo != null)
+                {
+                    if (codecConteudo.Equals("br", StringComparison.OrdinalIgnoreCase)) { codecConteudo = "Brotli"; }
+                    var tipo = Type.GetType($"{codecConteudo}Stream", true, true)!;
+                    dynamic conteudoProc = Activator.CreateInstance(tipo, [stream, compressionMode])!;
+
+                    return conteudoProc;
+                }
+            }
+
+            return stream;
+        }
+
+        public static async Task<string> BodyAsStringAsync(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null, CancellationToken cancellationToken = default)
+        {
+            var resultado = $"Dado[{tipoConteudo}]";
+
+            if (tipoConteudo == null
+                || tipoConteudo.StartsWith("text", StringComparison.InvariantCultureIgnoreCase)
+                || tipoConteudo.StartsWith("application", StringComparison.InvariantCultureIgnoreCase))
+            {
+                conteudoResposta.Seek(0, SeekOrigin.Begin);
+
+                resultado = await new StreamReader(conteudoResposta.Extrair(tipoConteudo, codecConteudo)).ReadToEndAsync(cancellationToken);
+            }
+
+            return resultado;
+        }
     }
 }

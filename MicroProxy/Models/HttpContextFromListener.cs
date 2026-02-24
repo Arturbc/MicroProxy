@@ -108,9 +108,8 @@ namespace MicroProxy.Models
         internal HttpRequestFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context, CancellationToken cancellationToken = default) : base(context)
         {
             string[] methodsSemBody = [HttpMethods.Head, HttpMethods.Get, HttpMethods.Connect, HttpMethods.Delete, HttpMethods.Trace];
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
             Body = new(stream, clientStream, this, true, false);
-            string[] req = LerCabecalhoPacote(Body, clientStream, Headers, cts.Token);
+            string[] req = LerCabecalhoPacote(Body, clientStream, Headers, cancellationToken);
 
             uri = new(req[1].Contains("://") || req[1].StartsWith('/') ? req[1] : "http://" + req[1], UriKind.RelativeOrAbsolute);
             Method = req[0];
@@ -132,7 +131,7 @@ namespace MicroProxy.Models
         {
             var clientStream = (NetworkStream)Body.GetType().GetField("_clientStream", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(Body)!;
             if (Body.GetType().GetField("_buffer", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(Body) is not MemoryStream)
-            { Body = new(Body.BaseStream, clientStream, this, true, false, true, new MemoryStream()); }
+            { Body = new(Body.BaseStream, clientStream, this, true, false, true); }
         }
 
         public string GetDisplayUrl()
@@ -160,9 +159,8 @@ namespace MicroProxy.Models
         {
             if (clonarContext)
             {
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
                 Body = new(stream, clientStream, this, true);
-                string[] resp = LerCabecalhoPacote(Body, clientStream, Headers, cts.Token);
+                string[] resp = LerCabecalhoPacote(Body, clientStream, Headers, context.RequestAborted);
 
                 StatusCode = int.Parse(resp[1]);
             }
@@ -210,20 +208,19 @@ namespace MicroProxy.Models
 
     public class BodyStream : Stream, IDisposable
     {
-        internal BodyStream(Stream stream, NetworkStream clientStream, HttpPacoteFromListener httpPacote, bool read = true, bool write = true, bool seek = false, MemoryStream? buffer = null)
+        internal BodyStream(Stream stream, NetworkStream clientStream, HttpPacoteFromListener httpPacote, bool read = true, bool write = true, bool seek = false)
         {
             BaseStream = stream is NetworkStream || stream is SslStream ? stream : throw new ArgumentException("Parâmetro to tipo inválido", nameof(stream));
             CanRead = read;
             CanWrite = write;
-            CanSeek = seek && buffer != null;
+            CanSeek = seek;
             _httpPacote = httpPacote;
             _clientStream = clientStream;
-            _buffer = buffer;
             SetDataAvailable();
         }
 
         private bool disposedValue;
-        private readonly MemoryStream? _buffer = null;
+        private MemoryStream? _buffer = null;
         private readonly HttpPacoteFromListener _httpPacote;
         private readonly NetworkStream _clientStream;
         public Stream BaseStream { get; }
@@ -236,8 +233,23 @@ namespace MicroProxy.Models
 
         public override void Flush()
         {
-            BaseStream.Flush();
             _buffer?.Flush();
+            BaseStream.Flush();
+        }
+
+        public override void CopyTo(Stream destination, int bufferSize = 1) => CopyToAsync(destination, bufferSize).Wait();
+
+        public override async Task CopyToAsync(Stream destination, int bufferSize = 1, CancellationToken cancellationToken = default)
+        {
+            int read;
+            var buffer = new byte[bufferSize];
+
+            if (_buffer != null || BaseStream is SslStream || _clientStream.Socket.Poll(0, SelectMode.SelectRead))
+            {
+                read = await ReadAsync(buffer, cancellationToken);
+
+                if (read != 0) { await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken); }
+            }
         }
 
         public override int Read(byte[] buffer, int offset, int count) => ReadAsync(buffer, offset, count).Result;
@@ -259,48 +271,28 @@ namespace MicroProxy.Models
             return read;
         }
 
-        public override void CopyTo(Stream destination, int bufferSize = 1) => CopyToAsync(destination, bufferSize).Wait();
-
-        public override async Task CopyToAsync(Stream destination, int bufferSize = 1, CancellationToken cancellationToken = default)
-        {
-            int read;
-            var buffer = new byte[bufferSize];
-
-            if (_buffer != null || BaseStream is SslStream || _clientStream.Socket.Poll(0, SelectMode.SelectRead))
-            {
-                read = await ReadAsync(buffer, cancellationToken);
-
-                if (read != 0) { await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken); }
-            }
-        }
-
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token, cancellationToken);
-            var internalBuffer = _buffer != null && _buffer.Length > 0 ? _buffer : null;
             int read;
             int totalRead = 0;
+            bool bufferNovo = _buffer == null;
 
-            if (internalBuffer != null) { DataAvailable = (int)internalBuffer.Length; }
+            if (!bufferNovo) { DataAvailable = (int)_buffer!.Length - (int)_buffer.Position; }
 
-            try
+            if (_clientStream.Socket.Poll(10, SelectMode.SelectRead))
             {
+                _buffer ??= new MemoryStream();
+                var internalBuffer = new byte[DataAvailable];
                 do
                 {
-                    read = internalBuffer != null ? await internalBuffer.ReadAsync(buffer, cancellationToken) : await BaseStream.ReadAsync(buffer, cts.Token);
+                    read = !bufferNovo ? await _buffer.ReadAsync(buffer, cancellationToken) : await BaseStream.ReadAsync(internalBuffer, cancellationToken);
+                    totalRead += read; if (bufferNovo) { await _buffer.WriteAsync(internalBuffer, cancellationToken); }
+                } while (totalRead < buffer.Length && read > 0);
 
-                    if (internalBuffer == null)
-                    {
-                        if (read == 0)
-                        {
-                            await Task.Delay(1, cts.Token);
-                            SetDataAvailable();
-                        }
-                        else { totalRead += read; if (_buffer != null) { await _buffer.WriteAsync(buffer, cancellationToken); } }
-                    }
-                } while (internalBuffer == null && totalRead < buffer.Length && (totalRead == 0 || read > 0));
+                if (totalRead > buffer.Length) { _buffer!.Seek(buffer.Length, SeekOrigin.Begin); totalRead = buffer.Length; }
             }
-            catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)])) { }
+
+            if (!CanSeek && _buffer != null && _buffer.Position == _buffer.Length) { await _buffer.DisposeAsync(); _buffer = null; }
 
             return totalRead;
         }

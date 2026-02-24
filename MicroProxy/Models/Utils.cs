@@ -272,6 +272,7 @@ namespace MicroProxy.Models
                             else
                             {
                                 using var tcpClient = new TcpClient(urlDestino.Host, urlDestino.Port) { NoDelay = true };
+                                if (site.BufferResp > 0) { tcpClient.ReceiveBufferSize = site.BufferResp; }
                                 await using var serverStream = tcpClient.GetStream();
                                 using var memory = new MemoryStream();
 
@@ -516,57 +517,6 @@ namespace MicroProxy.Models
             return null;
         }
 
-        public static Stream Decodificar(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null)
-        {
-            if (tipoConteudo == null
-                || tipoConteudo.StartsWith("text", StringComparison.InvariantCultureIgnoreCase)
-                || tipoConteudo.StartsWith("application", StringComparison.InvariantCultureIgnoreCase))
-            {
-                if (conteudoResposta.CanSeek) { conteudoResposta.Seek(0, SeekOrigin.Begin); }
-
-                if (codecConteudo != null)
-                {
-                    switch (codecConteudo.ToLower())
-                    {
-                        case "gzip":
-                            conteudoResposta = new GZipStream(conteudoResposta, CompressionMode.Decompress);
-                            break;
-
-                        case "deflate":
-                            conteudoResposta = new DeflateStream(conteudoResposta, CompressionMode.Decompress);
-                            break;
-
-                        case "brotli":
-                        case "br":
-                            conteudoResposta = new BrotliStream(conteudoResposta, CompressionMode.Decompress);
-                            break;
-
-                        case "zstd":
-                            conteudoResposta = new ZLibStream(conteudoResposta, CompressionMode.Decompress);
-                            break;
-                    }
-                }
-            }
-
-            return conteudoResposta;
-        }
-
-        public static async Task<string> BodyAsStringAsync(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null, CancellationToken cancellationToken = default)
-        {
-            var resultado = $"Dado[{tipoConteudo}]";
-
-            if (tipoConteudo == null
-                || tipoConteudo.StartsWith("text", StringComparison.InvariantCultureIgnoreCase)
-                || tipoConteudo.StartsWith("application", StringComparison.InvariantCultureIgnoreCase))
-            {
-                conteudoResposta.Seek(0, SeekOrigin.Begin);
-
-                resultado = await new StreamReader(conteudoResposta.Decodificar(tipoConteudo, codecConteudo)).ReadToEndAsync(cancellationToken);
-            }
-
-            return resultado;
-        }
-
         public static Dictionary<string, string?> ColetarDicionarioVariaveis<T>(this string valor, T obj)
         {
             Dictionary<string, string?> dic = [];
@@ -615,27 +565,10 @@ namespace MicroProxy.Models
             else
             {
                 int bytesRead;
-                int maxRead = 0;
-                CancellationTokenSource? cts = null;
-                do
-                {
-                    if (fonte is BodyStream bodyStream) { tambuffer = bodyStream.DataAvailable > tambuffer ? bodyStream.DataAvailable : MAX_BUFFER_SSL; }
-                    byte[] buffer = new byte[tambuffer];
+                byte[] buffer = new byte[tambuffer];
 
-                    while ((bytesRead = await fonte.ReadAsync(buffer, cancellationToken)) > 0)
-                    {
-                        if (bytesRead > maxRead) { maxRead = bytesRead; }
-                        foreach (var destino in destinos) { await destino.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken); }
-                    }
-
-                    if (maxRead > 0 && bytesRead == 0)
-                    {
-                        cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
-                        if (cts.IsCancellationRequested) { cts.Dispose(); break; }
-                    }
-                    else { cts?.Dispose(); cts = null; }
-                    await Task.Delay(1, cancellationToken);
-                } while (cancellationToken.CanBeCanceled && !cancellationToken.IsCancellationRequested);
+                while ((bytesRead = await fonte.ReadAsync(buffer, cancellationToken)) > 0)
+                { foreach (var destino in destinos) { await destino.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken); } }
             }
         }
 

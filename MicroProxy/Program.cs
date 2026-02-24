@@ -102,28 +102,19 @@ foreach (var (listener, certificado) in tcpListeners)
                     ipLocal = (IPEndPoint)clientStream.Socket.LocalEndPoint!;
                     ExibirLog($"Cliente {ipRemoto} conectado a {ipLocal}... (Conexões ativas: {++tarefas})");
 
-                    while (!cts.IsCancellationRequested)
-                    {
-                        if (clientStream.DataAvailable)
-                        {
-                            using var sslStream = new SslStream(clientStream, false, (sender, cert, chain, errors) => true);
-                            using var streamEmUso = certificado == null ? (Stream)clientStream : sslStream;
+                    using var sslStream = new SslStream(clientStream, false, (sender, cert, chain, errors) => true);
+                    using var streamEmUso = certificado == null ? (Stream)clientStream : sslStream;
 
-                            if (certificado != null)
-                            { await sslStream.AuthenticateAsServerAsync(certificado, configuracao.SolicitarCertificadoCliente, SslProtocols.Tls12 | SslProtocols.Tls13, false); }
+                    if (certificado != null)
+                    { await sslStream.AuthenticateAsServerAsync(certificado, configuracao.SolicitarCertificadoCliente, SslProtocols.Tls12 | SslProtocols.Tls13, false); }
 
-                            using var scope = app.Services.CreateScope();
-                            using HttpContextFromListener context = new(streamEmUso, clientStream, app.Lifetime.ApplicationStopping);
-                            httpContextStarted = true;
-                            ExibirLog($"URL de conexão solicitado: {new Uri(context.Request.GetDisplayUrl()).Authority}");
-                            var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();
-                            accessor.HttpContext = context;
-                            await context.ProcessarRequisicaoAsync(configuracao);
-                            break;
-                        }
-
-                        await Task.Delay(1, cts.Token);
-                    }
+                    using var scope = app.Services.CreateScope();
+                    using HttpContextFromListener context = new(streamEmUso, clientStream, app.Lifetime.ApplicationStopping);
+                    httpContextStarted = true;
+                    ExibirLog($"URL de conexão solicitado: {new Uri(context.Request.GetDisplayUrl()).Authority}");
+                    var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();
+                    accessor.HttpContext = context;
+                    await context.ProcessarRequisicaoAsync(configuracao);
                 }
                 catch (Exception ex)
                 {
