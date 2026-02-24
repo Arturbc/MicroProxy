@@ -2,6 +2,7 @@
 {
     public partial class Configuracao
     {
+        public const int MAX_BUFFER_SSL = 65536;
         public const string NOME_COOKIE = "Microproxy";
         public const string COOKIE_SITE = "cookieSite";
         public const string PATH_SITE_ATUAL = "pathSiteAtual";

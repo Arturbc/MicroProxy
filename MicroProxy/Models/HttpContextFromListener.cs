@@ -130,10 +130,8 @@ namespace MicroProxy.Models
 
         public void EnableBuffering()
         {
-            var clientStream = (NetworkStream)Body.GetType()
-                .GetField("_clientStream", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(Body)!;
-            if (Body.GetType()
-                .GetField("_buffer", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(Body) is not MemoryStream)
+            var clientStream = (NetworkStream)Body.GetType().GetField("_clientStream", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(Body)!;
+            if (Body.GetType().GetField("_buffer", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(Body) is not MemoryStream)
             { Body = new(Body.BaseStream, clientStream, this, true, false, true, new MemoryStream()); }
         }
 
@@ -217,17 +215,11 @@ namespace MicroProxy.Models
             BaseStream = stream is NetworkStream || stream is SslStream ? stream : throw new ArgumentException("Parâmetro to tipo inválido", nameof(stream));
             CanRead = read;
             CanWrite = write;
-            CanSeek = seek;
+            CanSeek = seek && buffer != null;
             _httpPacote = httpPacote;
             _clientStream = clientStream;
-
-            if (buffer != null)
-            {
-                do { CopyTo(buffer, BaseStream is SslStream ? 17000 : _clientStream.Socket.Available); }
-                while (BaseStream is not SslStream && _clientStream.Socket.Poll(0, SelectMode.SelectRead));
-                buffer.Seek(0, SeekOrigin.Begin);
-                _buffer = buffer;
-            }
+            _buffer = buffer;
+            SetDataAvailable();
         }
 
         private bool disposedValue;
@@ -240,6 +232,7 @@ namespace MicroProxy.Models
         public override bool CanWrite { get; }
         public override long Length => BaseStream.Length;
         public override long Position { get => BaseStream.Position; set => BaseStream.Position = value; }
+        public int DataAvailable { get; private set; }
 
         public override void Flush() => BaseStream.Flush();
 
@@ -280,30 +273,44 @@ namespace MicroProxy.Models
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token, cancellationToken);
-            int maxBuffer = _buffer != null ? 0 : Math.Min(_clientStream.Socket.Available, buffer.Length);
+            var internalBuffer = _buffer != null && _buffer.Length > 0 ? _buffer : null;
+            int maxBuffer = internalBuffer != null ? 0 : Math.Min(DataAvailable, buffer.Length);
             int read;
+
+            if (internalBuffer != null) { DataAvailable = (int)internalBuffer.Length; }
 
             try
             {
                 do
                 {
-                    read = _buffer != null ? await _buffer.ReadAsync(buffer, cts.Token) : await BaseStream.ReadAsync(buffer, cts.Token);
+                    read = internalBuffer != null ? await internalBuffer.ReadAsync(buffer, cancellationToken) : await BaseStream.ReadAsync(buffer, cts.Token);
 
-                    if (read == 0 && _buffer == null)
+                    if (internalBuffer == null)
                     {
-                        await Task.Delay(1, cts.Token);
-                        maxBuffer = Math.Min(_clientStream.Socket.Available, buffer.Length);
+                        if (read == 0)
+                        {
+                            await Task.Delay(1, cts.Token);
+                            SetDataAvailable();
+                            maxBuffer = Math.Min(DataAvailable, buffer.Length);
+                        }
+                        else { if (_buffer != null) { await _buffer.WriteAsync(buffer, cancellationToken); } }
                     }
-                } while (read == 0 && _buffer == null);
+                } while (read == 0 && internalBuffer == null);
             }
-            catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)])) { read = maxBuffer; }
+            catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)]))
+            {
+                read = maxBuffer;
+                DataAvailable -= read;
+            }
 
             return read;
         }
 
-        public override long Seek(long offset, SeekOrigin origin) => BaseStream.Seek(offset, origin);
+        private void SetDataAvailable() { if (DataAvailable == 0) { DataAvailable = _clientStream.Socket.Available; if (BaseStream is SslStream) { DataAvailable *= 3; } } }
 
-        public override void SetLength(long value) => BaseStream.SetLength(value);
+        public override long Seek(long offset, SeekOrigin origin) => _buffer!.Seek(offset, origin);
+
+        public override void SetLength(long value) => _buffer!.SetLength(value);
 
         public override void Write(byte[] buffer, int offset, int count) => WriteAsync(buffer, offset, count).Wait();
 

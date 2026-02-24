@@ -6,7 +6,6 @@ using Newtonsoft.Json;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Mime;
-using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -314,11 +313,14 @@ namespace MicroProxy.Models
 
                                             var cabecalho = MontarCabecalhoPacote(request.Protocol, site.PathAndQueryAtual, request.Method, headersReq);
 
-                                            if (request.Body.CanRead) { request.EnableBuffering(); }
+                                            if (request.Body.CanRead) { request.EnableBuffering(); if (request.Body.CanSeek) { request.Body.Seek(0, SeekOrigin.Begin); } }
+
                                             try
                                             {
+                                                using CancellationTokenSource cts = CancellationTokenSource
+                                                    .CreateLinkedTokenSource(context.RequestAborted, new CancellationTokenSource(TimeSpan.FromSeconds(site.SegundosTempoMax)).Token);
                                                 await serverStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho));
-                                                if (request.Body.CanRead) { await request.Body.CopyToAsync(site.BufferResp, [serverStream, memory], context.RequestAborted); }
+                                                if (request.Body.CanRead) { await request.Body.CopyToAsync(site.BufferResp, [serverStream, memory], cts.Token); }
                                                 await serverStream.FlushAsync(context.RequestAborted);
                                             }
                                             catch (Exception ex) { site.Exception = ex; }
@@ -352,7 +354,15 @@ namespace MicroProxy.Models
                                                 {
                                                     absolutePathUrlOrigemRedirect = null;
 
-                                                    try { if (response.Body.CanWrite) { await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], context.RequestAborted); } }
+                                                    try
+                                                    {
+                                                        if (response.Body.CanWrite)
+                                                        {
+                                                            using CancellationTokenSource cts = CancellationTokenSource
+                                                                .CreateLinkedTokenSource(context.RequestAborted, new CancellationTokenSource(TimeSpan.FromSeconds(site.SegundosTempoMax)).Token);
+                                                            await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], cts.Token);
+                                                        }
+                                                    }
                                                     catch (Exception ex) { site.Exception = ex; }
 
                                                     await memory.FlushAsync(context.RequestAborted);
@@ -595,26 +605,37 @@ namespace MicroProxy.Models
 
         public static async Task CopyToAsync(this Stream fonte, int tambuffer, Stream[] destinos, CancellationToken cancellationToken = default)
         {
-            byte[] buffer = new byte[tambuffer];
-            int bytesRead;
-            using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
-
-            do
+            if (tambuffer == 0)
             {
-                if (tambuffer == 0)
+                using MemoryStream memoryStream = new();
+                await fonte.CopyToAsync(memoryStream, cancellationToken);
+                foreach (var destino in destinos) { await destino.WriteAsync(memoryStream.ToArray(), cancellationToken); }
+            }
+            else
+            {
+                int bytesRead;
+                int maxRead = 0;
+                CancellationTokenSource? cts = null;
+                do
                 {
-                    using MemoryStream memoryStream = new();
-                    await fonte.CopyToAsync(memoryStream, cancellationToken);
-                    foreach (var destino in destinos) { await destino.WriteAsync(memoryStream.ToArray(), cancellationToken); }
-                }
-                else
-                {
-                    while ((bytesRead = await fonte.ReadAsync(buffer, cancellationToken)) > 0)
-                    { foreach (var destino in destinos) { await destino.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken); } }
-                }
+                    if (fonte is BodyStream bodyStream) { tambuffer = bodyStream.DataAvailable > tambuffer ? bodyStream.DataAvailable : MAX_BUFFER_SSL; }
+                    byte[] buffer = new byte[tambuffer];
 
-                await Task.Delay(1, cancellationToken);
-            } while (!cts.IsCancellationRequested);
+                    while ((bytesRead = await fonte.ReadAsync(buffer, cancellationToken)) > 0)
+                    {
+                        if (bytesRead > maxRead) { maxRead = bytesRead; }
+                        foreach (var destino in destinos) { await destino.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken); }
+                    }
+
+                    if (maxRead > 0 && bytesRead == 0)
+                    {
+                        cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
+                        if (cts.IsCancellationRequested) { cts.Dispose(); break; }
+                    }
+                    else { cts?.Dispose(); cts = null; }
+                    await Task.Delay(1, cancellationToken);
+                } while (cancellationToken.CanBeCanceled && !cancellationToken.IsCancellationRequested);
+            }
         }
 
         public static RSA CreateRsaFromPem(string pathKey, string? senha = null)

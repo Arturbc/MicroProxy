@@ -24,14 +24,6 @@ builder.Services.AddSession(options =>
     options.Cookie.Name = NOME_COOKIE;
     options.Cookie.IsEssential = true;
 });
-builder.Services.AddCors(options =>
-{
-    options.AddDefaultPolicy(builder =>
-    {
-        builder.WithOrigins(configuracao.AllowOrigins).WithHeaders(configuracao.AllowHeaders).WithMethods(configuracao.AllowMethods);
-        if (!configuracao.AllowOrigins.Contains("*")) { builder.AllowCredentials(); }
-    });
-});
 
 https = false;
 
@@ -151,7 +143,7 @@ foreach (var (listener, certificado) in tcpListeners)
                     }
                 }
 
-                ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {--tarefas})");
+                if (tarefas > 0) { ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {--tarefas})"); }
             });
 
             do { await Task.WhenAny(tarefa, Task.Delay(100, app.Lifetime.ApplicationStopping)); }

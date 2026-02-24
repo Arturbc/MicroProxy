@@ -16,6 +16,7 @@ namespace MicroProxy.Helpers
 
             do
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var bytesRead = await stream.ReadAsync(buffer, cancellationToken);
 
                 if (bytesRead != 0 && buffer[0] != '\n') { if (buffer[0] != '\r') { stringBuilder.Append((char)buffer[0]); } }
