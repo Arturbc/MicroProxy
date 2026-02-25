@@ -1,7 +1,6 @@
 ﻿using Microsoft.Extensions.Primitives;
 using System.IO.Compression;
 using System.Net;
-using System.Net.Sockets;
 using System.Text;
 
 namespace MicroProxy.Helpers
@@ -14,23 +13,25 @@ namespace MicroProxy.Helpers
         {
             StringBuilder stringBuilder = new();
             var buffer = new byte[1];
+            char[] cProibido = ['\n', '\r', '\0'];
+            char c;
 
             do
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var bytesRead = await stream.ReadAsync(buffer, cancellationToken);
 
-                if (bytesRead != 0 && buffer[0] != '\n') { if (buffer[0] != '\r') { stringBuilder.Append((char)buffer[0]); } }
-                else { buffer[0] = (byte)'\n'; }
-            } while (buffer[0] != '\n');
+                if (bytesRead != 0) { if (!cProibido.Contains(c = (char)buffer[0])) { stringBuilder.Append(c); } }
+                else { c = '\n'; }
+            } while (c != '\n');
 
             return stringBuilder.ToString();
         }
 
-        public static string[] LerCabecalhoPacote(Stream stream, NetworkStream clientStream, IHeaderDictionary headers, CancellationToken cancellationToken = default)
-            => LerCabecalhoPacoteAsync(stream, clientStream, headers, cancellationToken).Result;
+        public static string[] LerCabecalhoPacote(Stream stream, IHeaderDictionary headers, CancellationToken cancellationToken = default)
+            => LerCabecalhoPacoteAsync(stream, headers, cancellationToken).Result;
 
-        public static async Task<string[]> LerCabecalhoPacoteAsync(Stream stream, NetworkStream clientStream, IHeaderDictionary headers, CancellationToken cancellationToken = default)
+        public static async Task<string[]> LerCabecalhoPacoteAsync(Stream stream, IHeaderDictionary headers, CancellationToken cancellationToken = default)
         {
             string[] info = [];
             string[] header;

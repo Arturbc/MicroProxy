@@ -82,6 +82,7 @@ namespace MicroProxy.Models
     public abstract class HttpPacoteFromListener(HttpContextFromListener context) : IDisposable
     {
         private bool disposedValue;
+        public int Timeout { get; set; } = 100;
         public HttpContextFromListener HttpContext { get; } = context;
         public IHeaderDictionary Headers { get; } = new HeaderDictionary();
         public BodyStream Body { get; set; } = null!;
@@ -109,7 +110,7 @@ namespace MicroProxy.Models
         {
             string[] methodsSemBody = [HttpMethods.Head, HttpMethods.Get, HttpMethods.Connect, HttpMethods.Delete, HttpMethods.Trace];
             Body = new(stream, clientStream, this, true, false);
-            string[] req = LerCabecalhoPacote(Body, clientStream, Headers, cancellationToken);
+            string[] req = LerCabecalhoPacote(Body, Headers, cancellationToken);
 
             uri = new(req[1].Contains("://") || req[1].StartsWith('/') ? req[1] : "http://" + req[1], UriKind.RelativeOrAbsolute);
             Method = req[0];
@@ -117,7 +118,7 @@ namespace MicroProxy.Models
             QueryString = new QueryString(uri.IsAbsoluteUri ? uri.Query : (uri.OriginalString.Contains('?') ? '?' + uri.OriginalString.Split('?')[1] : null));
             Protocol = req[2];
 
-            if (methodsSemBody.Contains(Method) || HttpMethods.IsGet(Method)) { Body = new(stream, clientStream, this, false, false); }
+            if (methodsSemBody.Contains(Method) || HttpMethods.IsGet(Method)) { AtualizarBody(false, false, false); }
         }
 
         private readonly Uri uri;
@@ -127,12 +128,14 @@ namespace MicroProxy.Models
         public string Method { get; private set; } = null!;
         public bool IsHttps => Body.BaseStream is SslStream;
 
-        public void EnableBuffering()
+        private void AtualizarBody(bool read = true, bool write = true, bool canSeek = false)
         {
             var clientStream = (NetworkStream)Body.GetType().GetField("_clientStream", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(Body)!;
-            if (Body.GetType().GetField("_buffer", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(Body) is not MemoryStream)
-            { Body = new(Body.BaseStream, clientStream, this, true, false, true); }
+            var buffer = (MemoryStream)Body.GetType().GetField("_buffer", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(Body)!;
+            Body = new(Body.BaseStream, clientStream, this, read, write, canSeek, buffer);
         }
+
+        public void EnableBuffering() { if (!Body.CanSeek) { AtualizarBody(true, false, true); } }
 
         public string GetDisplayUrl()
         {
@@ -159,14 +162,16 @@ namespace MicroProxy.Models
         {
             if (clonarContext)
             {
-                Body = new(stream, clientStream, this, true);
-                string[] resp = LerCabecalhoPacote(Body, clientStream, Headers, context.RequestAborted);
+                Body = new(stream, clientStream, this, true, !HttpMethods.IsHead(HttpContext.Request.Method));
+                Timeout = context.Response.Timeout;
+                HasStarted = context.Response.HasStarted;
+                string[] resp = LerCabecalhoPacote(Body, Headers, context.RequestAborted);
 
                 StatusCode = int.Parse(resp[1]);
             }
             else
             {
-                Body = new(stream, clientStream, this, !HttpMethods.IsHead(HttpContext.Request.Method));
+                Body = new(stream, clientStream, this, false, !HttpMethods.IsHead(HttpContext.Request.Method));
                 StatusCode = (int)HttpStatusCode.OK;
             }
         }
@@ -206,30 +211,56 @@ namespace MicroProxy.Models
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1844:Fornecer substituições baseadas em memória de métodos assíncronos ao subclasse 'Stream'", Justification = "Sem necessidade")]
     public class BodyStream : Stream, IDisposable
     {
-        internal BodyStream(Stream stream, NetworkStream clientStream, HttpPacoteFromListener httpPacote, bool read = true, bool write = true, bool seek = false)
+        internal BodyStream(Stream stream, NetworkStream clientStream, HttpPacoteFromListener httpPacote, bool read = true, bool write = true, bool canSeek = false, MemoryStream? buffer = null)
         {
             BaseStream = stream is NetworkStream || stream is SslStream ? stream : throw new ArgumentException("Parâmetro to tipo inválido", nameof(stream));
             CanRead = read;
             CanWrite = write;
-            CanSeek = seek;
+            CanSeek = canSeek && buffer != null;
             _httpPacote = httpPacote;
             _clientStream = clientStream;
+            _buffer = buffer ?? new();
+            _bufferInicio = (int)_buffer.Position;
             SetDataAvailable();
         }
 
         private bool disposedValue;
-        private MemoryStream? _buffer = null;
+        private int _bufferInicio;
+        private readonly MemoryStream _buffer;
         private readonly HttpPacoteFromListener _httpPacote;
         private readonly NetworkStream _clientStream;
+        private Stream StreamRef => CanSeek ? _buffer : BaseStream;
         public Stream BaseStream { get; }
         public override bool CanRead { get; }
         public override bool CanSeek { get; }
         public override bool CanWrite { get; }
-        public override long Length => BaseStream.Length;
-        public override long Position { get => BaseStream.Position; set => BaseStream.Position = value; }
+        public override long Length => StreamRef.Length - _bufferInicio;
+        public override long Position { get => StreamRef.Position - _bufferInicio; set => StreamRef.Position = value + _bufferInicio; }
         public int DataAvailable { get; private set; }
+
+        private string MontarCabecalho()
+        {
+            if (_httpPacote is HttpResponseFromListener httpResponse && !httpResponse.HasStarted)
+            {
+                httpResponse.GetType().GetProperty(nameof(httpResponse.HasStarted))!.SetValue(httpResponse, true);
+                return MontarCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode, httpResponse.Headers);
+            }
+
+            return "";
+        }
+
+        private void SetDataAvailable()
+        {
+            DataAvailable = _buffer.Length != 0 ? (int)(_buffer.Length - _bufferInicio) : _clientStream.Socket.Available;
+            if (BaseStream is SslStream)
+            {
+                if (_httpPacote.Headers.ContentLength != null) { DataAvailable = (int)_httpPacote.Headers.ContentLength; }
+                else { DataAvailable *= 3; }
+            }
+        }
 
         public override void Flush()
         {
@@ -254,93 +285,63 @@ namespace MicroProxy.Models
 
         public override int Read(byte[] buffer, int offset, int count) => ReadAsync(buffer, offset, count).Result;
 
-        public override int Read(Span<byte> buffer)
-        {
-            var bufferArray = buffer.ToArray();
-            var read = ReadAsync(bufferArray).AsTask().Result;
-            bufferArray.AsSpan().CopyTo(buffer);
-            return read;
-        }
-
         public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
-            var bufferMemory = buffer.AsMemory(offset, count);
-            var read = await ReadAsync(bufferMemory, cancellationToken);
-            var bufferTemp = bufferMemory.ToArray();
-            for (int i = 0; i < read; i++) { buffer[i] = bufferTemp[i]; }
-            return read;
-        }
-
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            int read;
+            int read = 0;
             int totalRead = 0;
-            bool bufferNovo = _buffer == null;
+            bool bufferNovo = _buffer.Length == 0;
 
-            if (!bufferNovo) { DataAvailable = (int)_buffer!.Length - (int)_buffer.Position; }
+            if (bufferNovo) { SetDataAvailable(); }
 
-            if (_clientStream.Socket.Poll(10, SelectMode.SelectRead))
+            var internalBuffer = bufferNovo ? new byte[Configuracao.MAX_BUFFER_SSL] : buffer;
+            CancellationTokenSource? cts = null;
+            try
             {
-                _buffer ??= new MemoryStream();
-                var internalBuffer = new byte[DataAvailable];
                 do
                 {
-                    read = !bufferNovo ? await _buffer.ReadAsync(buffer, cancellationToken) : await BaseStream.ReadAsync(internalBuffer, cancellationToken);
-                    totalRead += read; if (bufferNovo) { await _buffer.WriteAsync(internalBuffer, cancellationToken); }
+                    if (bufferNovo)
+                    {
+                        if (_clientStream.Socket.Poll(0, SelectMode.SelectRead)) { read = await BaseStream.ReadAsync(internalBuffer, cts?.Token ?? cancellationToken); }
+                        if (read == 0)
+                        {
+                            cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(_httpPacote.Timeout)).Token);
+                            await Task.Delay(1, cts.Token);
+                            continue;
+                        }
+                        cts?.Dispose();
+                        cts = null;
+                        await _buffer.WriteAsync(internalBuffer.AsMemory(0, read), cancellationToken);
+                    }
+                    else { read = await _buffer.ReadAsync(buffer, cancellationToken); }
+                    totalRead += read;
+                    if (totalRead < buffer.Length && read > 0) { await Task.Delay(1, cancellationToken); }
                 } while (totalRead < buffer.Length && read > 0);
-
-                if (totalRead > buffer.Length) { _buffer!.Seek(buffer.Length, SeekOrigin.Begin); totalRead = buffer.Length; }
             }
+            catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)])) { }
 
-            if (!CanSeek && _buffer != null && _buffer.Position == _buffer.Length) { await _buffer.DisposeAsync(); _buffer = null; }
+            if (bufferNovo) { _buffer.Seek(0, SeekOrigin.Begin); }
+            if (totalRead > buffer.Length) { totalRead = buffer.Length; }
+            if (internalBuffer != buffer) { await _buffer.ReadAsync(buffer, cancellationToken); }
+            if (!CanSeek) { _bufferInicio = (int)_buffer.Position; }
+            SetDataAvailable();
 
             return totalRead;
         }
 
-        private void SetDataAvailable()
-        {
-            if (DataAvailable == 0)
-            {
-                DataAvailable = _clientStream.Socket.Available;
-                if (BaseStream is SslStream)
-                {
-                    if (_httpPacote.Headers.ContentLength != null) { DataAvailable = (int)_httpPacote.Headers.ContentLength; }
-                    else { DataAvailable *= 3; }
-                }
-            }
-        }
+        public override long Seek(long offset, SeekOrigin origin) => _buffer?.Seek(_bufferInicio + offset, origin) ?? 0;
 
-        public override long Seek(long offset, SeekOrigin origin) => _buffer!.Seek(offset, origin);
-
-        public override void SetLength(long value) => _buffer!.SetLength(value);
+        public override void SetLength(long value) => _buffer?.SetLength(_bufferInicio + value);
 
         public override void Write(byte[] buffer, int offset, int count) => WriteAsync(buffer, offset, count).Wait();
 
-        public override void Write(ReadOnlySpan<byte> buffer) => WriteAsync(buffer.ToArray()).AsTask().Wait();
-
-        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
-            => WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
-
-        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
             var cabecalho = MontarCabecalho();
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token);
-
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(_httpPacote.Timeout)).Token);
             _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
             if (!string.IsNullOrEmpty(cabecalho)) { await BaseStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cts.Token); }
 
             await BaseStream.WriteAsync(buffer, cts.Token);
-        }
-
-        private string MontarCabecalho()
-        {
-            if (_httpPacote is HttpResponseFromListener httpResponse && !httpResponse.HasStarted)
-            {
-                httpResponse.GetType().GetProperty(nameof(httpResponse.HasStarted))!.SetValue(httpResponse, true);
-                return MontarCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode, httpResponse.Headers);
-            }
-
-            return "";
         }
 
         protected override void Dispose(bool disposing)

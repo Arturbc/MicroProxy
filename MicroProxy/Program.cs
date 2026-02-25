@@ -86,6 +86,7 @@ foreach (var (listener, certificado) in tcpListeners)
         {
             var client = await listener.AcceptTcpClientAsync(app.Lifetime.ApplicationStopping);
             var clientStream = client.GetStream();
+            await Task.Delay(1, app.Lifetime.ApplicationStopping);
             try { configuracao = new(); } catch { }
             var tarefa = Task.Run(async () =>
             {
