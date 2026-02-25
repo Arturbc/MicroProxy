@@ -296,7 +296,7 @@ namespace MicroProxy.Models
 
             if (bufferNovo) { SetDataAvailable(); }
 
-            var internalBuffer = bufferNovo ? new byte[_clientStream.Socket.ReceiveBufferSize] : buffer;
+            var internalBuffer = new byte[_clientStream.Socket.ReceiveBufferSize];
             CancellationTokenSource? cts = null;
             try
             {
@@ -308,7 +308,7 @@ namespace MicroProxy.Models
                         if (_clientStream.Socket.Poll(0, SelectMode.SelectRead)) { read = await BaseStream.ReadAsync(internalBuffer, cts?.Token ?? cancellationToken); }
                         await _buffer.WriteAsync(internalBuffer.AsMemory(0, read), cancellationToken);
                     }
-                    else { read = await _buffer.ReadAsync(buffer, cancellationToken); }
+                    else { read = await _buffer.ReadAsync(buffer, cancellationToken); posicaoAtualBuffer = (int)_buffer.Position; }
                     totalRead += read;
                     loopAtivo = totalRead < buffer.Length && (totalRead == 0 || read > 0) && (bufferNovo || _buffer.Position < _buffer.Length);
 
@@ -327,9 +327,10 @@ namespace MicroProxy.Models
             }
             catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)])) { }
 
-            if (bufferNovo) { _buffer.Seek(posicaoAtualBuffer, SeekOrigin.Begin); }
             if (totalRead > buffer.Length) { totalRead = buffer.Length; }
-            if (internalBuffer != buffer) { await _buffer.ReadAsync(buffer, cancellationToken); }
+            if (posicaoAtualBuffer >= totalRead) { posicaoAtualBuffer -= totalRead; }
+            _buffer.Seek(posicaoAtualBuffer, SeekOrigin.Begin);
+            await _buffer.ReadAsync(buffer, cancellationToken);
             if (!CanSeek) { _bufferInicio = (int)_buffer.Position; }
             SetDataAvailable();
 
