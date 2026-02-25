@@ -285,7 +285,7 @@ namespace MicroProxy.Models
                                 else
                                 {
                                     using var tcpClient = new TcpClient(urlDestino.Host, urlDestino.Port) { NoDelay = true };
-                                    if (site.BufferResp > 0) { tcpClient.ReceiveBufferSize = site.BufferResp; }
+                                    //if (site.BufferResp > 0) { tcpClient.ReceiveBufferSize = site.BufferResp; }
                                     tcpClient.ReceiveTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds;
                                     tcpClient.SendTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds;
                                     await using var serverStream = tcpClient.GetStream();
@@ -361,11 +361,7 @@ namespace MicroProxy.Models
                                                         try
                                                         {
                                                             if (response.Body.CanWrite)
-                                                            {
-                                                                using CancellationTokenSource cts = CancellationTokenSource
-                                                                    .CreateLinkedTokenSource(context.RequestAborted, new CancellationTokenSource(TimeSpan.FromSeconds(site.SegundosTempoMax)).Token);
-                                                                await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], cts.Token);
-                                                            }
+                                                            { await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], context.RequestAborted); }
                                                         }
                                                         catch (Exception ex) { site.Exception = ex; }
 

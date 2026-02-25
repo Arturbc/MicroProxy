@@ -254,7 +254,8 @@ namespace MicroProxy.Models
 
         private void SetDataAvailable()
         {
-            DataAvailable = _buffer.Length != 0 ? (int)(_buffer.Length - _bufferInicio) : _clientStream.Socket.Available;
+            DataAvailable = _buffer.Length != 0 ? (int)(_buffer.Length - _bufferInicio) + _clientStream.Socket.Available : _clientStream.Socket.Available;
+
             if (BaseStream is SslStream)
             {
                 if (_httpPacote.Headers.ContentLength != null) { DataAvailable = (int)_httpPacote.Headers.ContentLength; }
@@ -289,11 +290,13 @@ namespace MicroProxy.Models
         {
             int read = 0;
             int totalRead = 0;
-            bool bufferNovo = _buffer.Length == 0;
+            bool bufferNovo = _buffer.Length == _buffer.Position || _clientStream.DataAvailable;
+            bool loopAtivo;
+            int posicaoAtualBuffer = (int)_buffer.Position;
 
             if (bufferNovo) { SetDataAvailable(); }
 
-            var internalBuffer = bufferNovo ? new byte[Configuracao.MAX_BUFFER_SSL] : buffer;
+            var internalBuffer = bufferNovo ? new byte[_clientStream.Socket.ReceiveBufferSize] : buffer;
             CancellationTokenSource? cts = null;
             try
             {
@@ -301,25 +304,30 @@ namespace MicroProxy.Models
                 {
                     if (bufferNovo)
                     {
+                        _buffer.Seek(_buffer.Length, SeekOrigin.Begin);
                         if (_clientStream.Socket.Poll(0, SelectMode.SelectRead)) { read = await BaseStream.ReadAsync(internalBuffer, cts?.Token ?? cancellationToken); }
-                        if (read == 0)
-                        {
-                            cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(_httpPacote.Timeout)).Token);
-                            await Task.Delay(1, cts.Token);
-                            continue;
-                        }
-                        cts?.Dispose();
-                        cts = null;
                         await _buffer.WriteAsync(internalBuffer.AsMemory(0, read), cancellationToken);
                     }
                     else { read = await _buffer.ReadAsync(buffer, cancellationToken); }
                     totalRead += read;
-                    if (totalRead < buffer.Length && read > 0) { await Task.Delay(1, cancellationToken); }
-                } while (totalRead < buffer.Length && read > 0);
+                    loopAtivo = totalRead < buffer.Length && (totalRead == 0 || read > 0) && (bufferNovo || _buffer.Position < _buffer.Length);
+
+                    if (read == 0)
+                    {
+                        bufferNovo = true;
+                        cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,
+                            new CancellationTokenSource(TimeSpan.FromSeconds(_buffer.Length == 0 ? _httpPacote.Timeout : 1)).Token);
+                        await Task.Delay(1, cts.Token);
+                        continue;
+                    }
+
+                    cts?.Dispose();
+                    cts = null;
+                } while (loopAtivo);
             }
             catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)])) { }
 
-            if (bufferNovo) { _buffer.Seek(0, SeekOrigin.Begin); }
+            if (bufferNovo) { _buffer.Seek(posicaoAtualBuffer, SeekOrigin.Begin); }
             if (totalRead > buffer.Length) { totalRead = buffer.Length; }
             if (internalBuffer != buffer) { await _buffer.ReadAsync(buffer, cancellationToken); }
             if (!CanSeek) { _bufferInicio = (int)_buffer.Position; }
