@@ -109,16 +109,16 @@ namespace MicroProxy.Models
         internal HttpRequestFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context, CancellationToken cancellationToken = default) : base(context)
         {
             string[] methodsSemBody = [HttpMethods.Head, HttpMethods.Get, HttpMethods.Connect, HttpMethods.Delete, HttpMethods.Trace];
-            Body = new(stream, clientStream, this, true, false);
-            string[] req = LerCabecalhoPacote(Body, Headers, cancellationToken);
+            using var body = new BodyStream(stream, clientStream, this, true, false);
+
+            string[] req = LerCabecalhoPacote(body, Headers, cancellationToken);
 
             uri = new(req[1].Contains("://") || req[1].StartsWith('/') ? req[1] : "http://" + req[1], UriKind.RelativeOrAbsolute);
             Method = req[0];
             Path = uri.IsAbsoluteUri ? uri.AbsolutePath : uri.OriginalString;
             QueryString = new QueryString(uri.IsAbsoluteUri ? uri.Query : (uri.OriginalString.Contains('?') ? '?' + uri.OriginalString.Split('?')[1] : null));
             Protocol = req[2];
-
-            if (methodsSemBody.Contains(Method) || HttpMethods.IsGet(Method)) { AtualizarBody(false, false, false); }
+            Body = body.AtualizarBody(!methodsSemBody.Contains(Method), false);
         }
 
         private readonly Uri uri;
@@ -128,14 +128,7 @@ namespace MicroProxy.Models
         public string Method { get; private set; } = null!;
         public bool IsHttps => Body.BaseStream is SslStream;
 
-        private void AtualizarBody(bool read = true, bool write = true, bool canSeek = false)
-        {
-            var clientStream = (NetworkStream)Body.GetType().GetField("_clientStream", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(Body)!;
-            var buffer = (MemoryStream)Body.GetType().GetField("_buffer", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(Body)!;
-            Body = new(Body.BaseStream, clientStream, this, read, write, canSeek, buffer);
-        }
-
-        public void EnableBuffering() { if (!Body.CanSeek) { AtualizarBody(true, false, true); } }
+        public void EnableBuffering() { if (!Body.CanSeek) { using var body = Body; Body = body.AtualizarBody(true, false, true); } }
 
         public string GetDisplayUrl()
         {
@@ -162,12 +155,12 @@ namespace MicroProxy.Models
         {
             if (clonarContext)
             {
-                Body = new(stream, clientStream, this, true, !HttpMethods.IsHead(HttpContext.Request.Method));
+                using var body = new BodyStream(stream, clientStream, this, true, !HttpMethods.IsHead(HttpContext.Request.Method));
                 Timeout = context.Response.Timeout;
-                HasStarted = context.Response.HasStarted;
-                string[] resp = LerCabecalhoPacote(Body, Headers, context.RequestAborted);
+                string[] resp = LerCabecalhoPacote(body, Headers, context.RequestAborted);
 
                 StatusCode = int.Parse(resp[1]);
+                Body = body.AtualizarBody(true, !HttpMethods.IsHead(HttpContext.Request.Method));
             }
             else
             {
@@ -198,16 +191,9 @@ namespace MicroProxy.Models
 
         public async Task CompleteAsync()
         {
-            var cabecalho = MontarCabecalho();
+            var cabecalho = Body.MontarCabecalho();
             if (!string.IsNullOrEmpty(cabecalho)) { await Body.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), default); }
             await Body.FlushAsync(HttpContext.RequestAborted);
-        }
-
-        private string MontarCabecalho()
-        {
-            var metodo = Body.GetType().GetMethod(nameof(MontarCabecalho), BindingFlags.NonPublic | BindingFlags.Instance);
-
-            return (metodo?.Invoke(Body, null) as string) ?? "";
         }
     }
 
@@ -241,7 +227,16 @@ namespace MicroProxy.Models
         public override long Position { get => StreamRef.Position - _bufferInicio; set => StreamRef.Position = value + _bufferInicio; }
         public int DataAvailable { get; private set; }
 
-        private string MontarCabecalho()
+        internal BodyStream AtualizarBody(bool read = true, bool write = true, bool canSeek = false)
+        {
+            var novoBuffer = new MemoryStream();
+            _buffer.CopyTo(novoBuffer);
+            _buffer.Dispose();
+            novoBuffer.Seek(0, SeekOrigin.Begin);
+            return new(BaseStream, _clientStream, _httpPacote, read, write, canSeek, novoBuffer);
+        }
+
+        internal string MontarCabecalho()
         {
             if (_httpPacote is HttpResponseFromListener httpResponse && !httpResponse.HasStarted)
             {
@@ -292,8 +287,8 @@ namespace MicroProxy.Models
             int totalRead = 0;
             bool bufferNovo = _buffer.Length == _buffer.Position || _clientStream.DataAvailable;
             bool loopAtivo;
-            int posicaoAtualBuffer = (int)_buffer.Position;
-
+            Console.WriteLine($"1.{nameof(_buffer.Length)} {_buffer.Length}");
+            Console.WriteLine($"1.{nameof(_buffer.Position)} {_buffer.Position}\n");
             if (bufferNovo) { SetDataAvailable(); }
 
             var internalBuffer = new byte[_clientStream.Socket.ReceiveBufferSize];
@@ -304,35 +299,48 @@ namespace MicroProxy.Models
                 {
                     if (bufferNovo)
                     {
+                        int posicaoAtualBuffer = (int)_buffer.Position;
                         _buffer.Seek(_buffer.Length, SeekOrigin.Begin);
                         if (_clientStream.Socket.Poll(0, SelectMode.SelectRead)) { read = await BaseStream.ReadAsync(internalBuffer, cts?.Token ?? cancellationToken); }
                         await _buffer.WriteAsync(internalBuffer.AsMemory(0, read), cancellationToken);
+                        posicaoAtualBuffer += Math.Min(read, buffer.Length);
+                        _buffer.Seek(posicaoAtualBuffer, SeekOrigin.Begin);
                     }
-                    else { read = await _buffer.ReadAsync(buffer, cancellationToken); posicaoAtualBuffer = (int)_buffer.Position; }
+                    else { read = await _buffer.ReadAsync(internalBuffer.AsMemory(0, buffer.Length), cancellationToken); }
                     totalRead += read;
                     loopAtivo = totalRead < buffer.Length && (totalRead == 0 || read > 0) && (bufferNovo || _buffer.Position < _buffer.Length);
 
                     if (read == 0)
                     {
-                        bufferNovo = true;
-                        cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,
-                            new CancellationTokenSource(TimeSpan.FromSeconds(_buffer.Length == 0 ? _httpPacote.Timeout : 1)).Token);
-                        await Task.Delay(1, cts.Token);
-                        continue;
+                        if (_clientStream.Socket.Connected)
+                        {
+                            bufferNovo = true;
+                            cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,
+                                new CancellationTokenSource(TimeSpan.FromSeconds(_buffer.Length == 0 ? _httpPacote.Timeout : 1)).Token);
+                            await Task.Delay(1, cts.Token);
+                            continue;
+                        }
+                        else { loopAtivo = false; }
                     }
 
                     cts?.Dispose();
                     cts = null;
                 } while (loopAtivo);
             }
-            catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)])) { }
+            catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)])) { cts?.Dispose(); }
 
+            Console.WriteLine($"2.{nameof(_buffer.Length)} {_buffer.Length}");
+            Console.WriteLine($"2.{nameof(_buffer.Position)} {_buffer.Position}");
+            Console.WriteLine($"2.{nameof(totalRead)} {totalRead}\n");
             if (totalRead > buffer.Length) { totalRead = buffer.Length; }
-            if (posicaoAtualBuffer >= totalRead) { posicaoAtualBuffer -= totalRead; }
-            _buffer.Seek(posicaoAtualBuffer, SeekOrigin.Begin);
-            await _buffer.ReadAsync(buffer, cancellationToken);
+            //if (posicaoAtualBuffer >= totalRead) { posicaoAtualBuffer -= totalRead; }
+            Array.Copy(internalBuffer, buffer, totalRead);
             if (!CanSeek) { _bufferInicio = (int)_buffer.Position; }
             SetDataAvailable();
+            Console.WriteLine($"3.{nameof(_buffer.Length)} {_buffer.Length}");
+            Console.WriteLine($"3.{nameof(_buffer.Position)} {_buffer.Position}");
+            Console.WriteLine($"3.{nameof(totalRead)} {totalRead}");
+            Console.WriteLine($"3.{nameof(buffer)} \"{Encoding.UTF8.GetString(buffer)}\"\n");
 
             return totalRead;
         }

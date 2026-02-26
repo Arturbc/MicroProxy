@@ -59,8 +59,8 @@ foreach (string url in urls)
     if (!string.IsNullOrEmpty(certificadoStr))
     {
         if (porta == 80 && !ipPorta.Groups["porta"].Success) { porta = 443; }
-        X509Certificate2? certificado = Utils.ObterCertificado(certificadoStr, configuracao.CertificadoPrivadoSenha, configuracao.CertificadoPrivadoChave
-            , Utils.CertificadoEKUOID.Servidor, !https);
+        X509Certificate2? certificado = UtilsHelper.ObterCertificado(certificadoStr, configuracao.CertificadoPrivadoSenha, configuracao.CertificadoPrivadoChave
+            , UtilsHelper.CertificadoEKUOID.Servidor, !https);
         https = true;
         tcpListeners.Add((new TcpListener(ip, porta), certificado));
         tcpListeners.Last().listener.Start();

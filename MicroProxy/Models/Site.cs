@@ -32,7 +32,7 @@ namespace MicroProxy.Models
         private bool? _autoFechar = null;
         private readonly List<string> _urlsDescartadas = [];
 
-        private static HttpContextFromListener HttpContext => Utils.HttpContextAccessor.HttpContext!;
+        private static HttpContextFromListener HttpContext => UtilsHelper.HttpContextAccessor.HttpContext!;
         public static string IpLocal => (HttpContext?.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
         public static string IpRemoto => (HttpContext?.Connection.RemoteIpAddress ?? IPAddress.Loopback).ToString();
         public static string IpRemotoFw
@@ -82,7 +82,7 @@ namespace MicroProxy.Models
         public string AbsolutePathAtual => new Uri(UrlAtual).AbsolutePath;
         public string PathAtualSubstituto { get; private set; } = "";
         public string PathAtualAdicional { get; set; } = "";
-        public string AbsolutePathAtualOrigemRedirect => Utils.AbsolutePathUrlOrigemRedirect ?? "";
+        public string AbsolutePathAtualOrigemRedirect => UtilsHelper.AbsolutePathUrlOrigemRedirect ?? "";
         public string AuthorityDestino => new Uri(UrlDestino).Authority;
         public string HostDestino => new Uri(UrlDestino).Host;
         public string SchemaDestino => new Uri(UrlDestino).Scheme;

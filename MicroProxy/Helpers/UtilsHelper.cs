@@ -16,7 +16,7 @@ using static MicroProxy.Helpers.HttpHelper;
 
 namespace MicroProxy.Models
 {
-    public static partial class Utils
+    public static partial class UtilsHelper
     {
         public readonly struct CertificadoEKUOID
         {
@@ -493,7 +493,7 @@ namespace MicroProxy.Models
                 byte[] buffer = new byte[tambuffer];
 
                 while ((bytesRead = await fonte.ReadAsync(buffer, cancellationToken)) > 0)
-                { foreach (var destino in destinos) { await destino.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken); } }
+                { foreach (var destino in destinos) { await destino.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken); } buffer.AsSpan().Clear(); }
             }
         }
 
