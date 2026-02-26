@@ -3,16 +3,16 @@ using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
-using System.IO.Compression;
 using System.Net;
 using System.Net.Mime;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
-using static MicroProxy.Models.Configuracao;
 using static MicroProxy.Helpers.HttpHelper;
+using static MicroProxy.Models.Configuracao;
 
 namespace MicroProxy.Models
 {
@@ -285,19 +285,29 @@ namespace MicroProxy.Models
                                 else
                                 {
                                     using var tcpClient = new TcpClient(urlDestino.Host, urlDestino.Port) { NoDelay = true };
-                                    //if (site.BufferResp > 0) { tcpClient.ReceiveBufferSize = site.BufferResp; }
                                     tcpClient.ReceiveTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds;
                                     tcpClient.SendTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds;
                                     await using var serverStream = tcpClient.GetStream();
+                                    using var serverSslStream = new SslStream(serverStream);
                                     using var memory = new MemoryStream();
+                                    var destinoHttps = urlDestino.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase);
+
+                                    if (destinoHttps)
+                                    {
+                                        var sslClientAuth = new SslClientAuthenticationOptions();
+                                        if (request.Body.BaseStream is SslStream sslStream && sslStream.RemoteCertificate != null) { sslClientAuth.ClientCertificates = [sslStream.RemoteCertificate]; }
+                                        if (site.IgnorarCertificadoDestino) { sslClientAuth.RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true; }
+                                        await serverSslStream.AuthenticateAsClientAsync(sslClientAuth, context.RequestAborted);
+                                    }
+                                    using var serverStreamEmUso = destinoHttps ? (Stream)serverSslStream : serverStream;
 
                                     try
                                     {
                                         if (HttpMethods.IsConnect(request.Method))
                                         {
                                             response.Headers.Connection = "close";
-                                            tarefasAsync.Add(response.Body.BaseStream.CopyToAsync(site.BufferResp, [serverStream], context.RequestAborted));
-                                            tarefasAsync.Add(serverStream.CopyToAsync(site.BufferResp, [response.Body.BaseStream], context.RequestAborted));
+                                            tarefasAsync.Add(response.Body.BaseStream.CopyToAsync(site.BufferResp, [serverStreamEmUso], context.RequestAborted));
+                                            tarefasAsync.Add(serverStreamEmUso.CopyToAsync(site.BufferResp, [response.Body.BaseStream], context.RequestAborted));
                                         }
                                         else
                                         {

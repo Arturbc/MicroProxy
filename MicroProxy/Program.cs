@@ -96,21 +96,21 @@ foreach (var (listener, certificado) in tcpListeners)
                 try
                 {
                     using var clientTask = client;
-                    await using var clientStream = clientTask.GetStream();
+                    await using var clientStreamTask = clientStream;
                     using var cts = CancellationTokenSource
                         .CreateLinkedTokenSource(new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token, app.Lifetime.ApplicationStopping);
-                    ipRemoto = (IPEndPoint)clientStream.Socket.RemoteEndPoint!;
-                    ipLocal = (IPEndPoint)clientStream.Socket.LocalEndPoint!;
+                    ipRemoto = (IPEndPoint)clientStreamTask.Socket.RemoteEndPoint!;
+                    ipLocal = (IPEndPoint)clientStreamTask.Socket.LocalEndPoint!;
                     ExibirLog($"Cliente {ipRemoto} conectado a {ipLocal}... (Conexões ativas: {++tarefas})");
 
-                    using var sslStream = new SslStream(clientStream, false, (sender, cert, chain, errors) => true);
-                    using var streamEmUso = certificado == null ? (Stream)clientStream : sslStream;
+                    using var sslStream = new SslStream(clientStreamTask, false, (sender, cert, chain, errors) => true);
+                    using var streamEmUso = certificado == null ? (Stream)clientStreamTask : sslStream;
 
                     if (certificado != null)
                     { await sslStream.AuthenticateAsServerAsync(certificado, configuracao.SolicitarCertificadoCliente, SslProtocols.Tls12 | SslProtocols.Tls13, false); }
 
                     using var scope = app.Services.CreateScope();
-                    using HttpContextFromListener context = new(streamEmUso, clientStream, app.Lifetime.ApplicationStopping);
+                    using HttpContextFromListener context = new(streamEmUso, clientStreamTask, app.Lifetime.ApplicationStopping);
                     httpContextStarted = true;
                     ExibirLog($"URL de conexão solicitado: {new Uri(context.Request.GetDisplayUrl()).Authority}");
                     var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();

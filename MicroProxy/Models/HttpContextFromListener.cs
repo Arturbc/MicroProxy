@@ -301,7 +301,7 @@ namespace MicroProxy.Models
                     {
                         int posicaoAtualBuffer = (int)_buffer.Position;
                         _buffer.Seek(_buffer.Length, SeekOrigin.Begin);
-                        if (_clientStream.Socket.Poll(0, SelectMode.SelectRead)) { read = await BaseStream.ReadAsync(internalBuffer, cts?.Token ?? cancellationToken); }
+                        if (_clientStream.Socket.Poll(0, SelectMode.SelectRead) || BaseStream is SslStream) { read = await BaseStream.ReadAsync(internalBuffer, cts?.Token ?? cancellationToken); }
                         await _buffer.WriteAsync(internalBuffer.AsMemory(0, read), cancellationToken);
                         posicaoAtualBuffer += Math.Min(read, buffer.Length);
                         _buffer.Seek(posicaoAtualBuffer, SeekOrigin.Begin);
