@@ -109,8 +109,18 @@ foreach (var (listener, certificado) in tcpListeners)
                     if (certificado != null)
                     { await sslStream.AuthenticateAsServerAsync(certificado, configuracao.SolicitarCertificadoCliente, SslProtocols.Tls12 | SslProtocols.Tls13, false); }
 
+                    using var ctsAbort = new CancellationTokenSource();
+                    using var ctsAbortLink = CancellationTokenSource.CreateLinkedTokenSource(app.Lifetime.ApplicationStopping, ctsAbort.Token);
+                    var bufferCheckAbort = new byte[1];
+                    void checkAbort(object? _)
+                    {
+                        try { if (!clientStreamTask.Socket.Poll(0, SelectMode.SelectRead)) { _ = clientStreamTask.ReadByte(); } }
+                        catch (IOException) { try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { } }
+                    }
+
+                    using var timer = new Timer(new TimerCallback(checkAbort), null, 100, 100);
                     using var scope = app.Services.CreateScope();
-                    using HttpContextFromListener context = new(streamEmUso, clientStreamTask, app.Lifetime.ApplicationStopping);
+                    using HttpContextFromListener context = new(streamEmUso, clientStreamTask, ctsAbortLink.Token);
                     httpContextStarted = true;
                     ExibirLog($"URL de conexão solicitado: {new Uri(context.Request.GetDisplayUrl()).Authority}");
                     var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();
