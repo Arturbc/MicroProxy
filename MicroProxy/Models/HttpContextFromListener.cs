@@ -1,10 +1,10 @@
 ﻿using MicroProxy.Extensions;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
-using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using static MicroProxy.Helpers.HttpHelper;
@@ -15,6 +15,7 @@ namespace MicroProxy.Models
     {
         HttpContextFromListener? HttpContext { get; set; }
     }
+
     public class HttpContextFromListenerAccessor : IHttpContextFromListenerAccessor
     {
         private static readonly AsyncLocal<HttpContextFromListenerHolder> _httpContextCurrent = new();
@@ -33,6 +34,7 @@ namespace MicroProxy.Models
 
         private sealed class HttpContextFromListenerHolder { public HttpContextFromListener? Context; }
     }
+
     public class HttpContextFromListener : IDisposable
     {
         public HttpContextFromListener(Stream stream, NetworkStream clientStream, CancellationToken cancellationToken = default)
@@ -174,19 +176,44 @@ namespace MicroProxy.Models
         public StringValues ContentType { get => Headers.ContentType; set => Headers.ContentType = value; }
         public long? ContentLength { get => Headers.ContentLength; set => Headers.ContentLength = value; }
 
-        public virtual void Redirect(string location, bool permanent = false)
+        public void Redirect(string location, bool permanent = false)
         {
             Headers.Location = location;
             StatusCode = (int)(permanent ? HttpStatusCode.PermanentRedirect : HttpStatusCode.Redirect);
         }
 
-        public virtual async Task WriteAsync(string entrada, CancellationToken cancellationToken) => await Body.WriteAsync(Encoding.UTF8.GetBytes(entrada), cancellationToken);
+        public async Task WriteAsync(string entrada, CancellationToken cancellationToken) => await Body.WriteAsync(Encoding.UTF8.GetBytes(entrada), cancellationToken);
 
-        public virtual async Task SendFileAsync(IFileInfo fileInfo, CancellationToken cancellationToken)
+        public async Task SendFileAsync(IFileInfo fileInfo, CancellationToken cancellationToken)
         {
             using var stream = fileInfo.CreateReadStream();
 
             await stream.CopyToAsync(Body, cancellationToken);
+        }
+
+        public async Task<string?> SendFileAsync(string? pathDiretorio, string? pathArquivo, CancellationToken cancellationToken = default)
+        {
+            if (pathDiretorio != null && pathDiretorio != "" && pathArquivo != null && pathArquivo != "")
+            {
+                var arquivo = new PhysicalFileProvider(pathDiretorio).GetFileInfo(pathArquivo);
+
+                if (arquivo.Exists)
+                {
+                    var provedor = new FileExtensionContentTypeProvider();
+                    await using var conteudoResposta = arquivo.CreateReadStream();
+
+                    ContentLength = arquivo.Length;
+
+                    if (provedor.TryGetContentType(pathArquivo, out string? tipoConteudo)) { ContentType = tipoConteudo; }
+
+                    await SendFileAsync(arquivo, cancellationToken);
+                    var resultado = await conteudoResposta.BodyAsStringAsync(tipoConteudo, cancellationToken: cancellationToken);
+
+                    return resultado;
+                }
+            }
+
+            return null;
         }
 
         public async Task CompleteAsync()
@@ -210,7 +237,6 @@ namespace MicroProxy.Models
             _clientStream = clientStream;
             _buffer = buffer ?? new();
             _bufferInicio = (int)_buffer.Position;
-            SetDataAvailable();
         }
 
         private bool disposedValue;
@@ -225,8 +251,7 @@ namespace MicroProxy.Models
         public override bool CanWrite { get; }
         public override long Length => StreamRef.Length - _bufferInicio;
         public override long Position { get => StreamRef.Position - _bufferInicio; set => StreamRef.Position = value + _bufferInicio; }
-        public int DataAvailable { get; private set; }
-
+        
         internal BodyStream AtualizarBody(bool read = true, bool write = true, bool canSeek = false)
         {
             var novoBuffer = new MemoryStream();
@@ -245,17 +270,6 @@ namespace MicroProxy.Models
             }
 
             return "";
-        }
-
-        private void SetDataAvailable()
-        {
-            DataAvailable = _buffer.Length != 0 ? (int)(_buffer.Length - _bufferInicio) + _clientStream.Socket.Available : _clientStream.Socket.Available;
-
-            if (BaseStream is SslStream)
-            {
-                if (_httpPacote.Headers.ContentLength != null) { DataAvailable = (int)_httpPacote.Headers.ContentLength; }
-                else { DataAvailable *= 3; }
-            }
         }
 
         public override void Flush()
@@ -289,7 +303,6 @@ namespace MicroProxy.Models
             bool loopAtivo;
             Console.WriteLine($"1.{nameof(_buffer.Length)} {_buffer.Length}");
             Console.WriteLine($"1.{nameof(_buffer.Position)} {_buffer.Position}\n");
-            if (bufferNovo) { SetDataAvailable(); }
 
             var internalBuffer = new byte[_clientStream.Socket.ReceiveBufferSize];
             CancellationTokenSource? cts = null;
@@ -333,10 +346,8 @@ namespace MicroProxy.Models
             Console.WriteLine($"2.{nameof(_buffer.Position)} {_buffer.Position}");
             Console.WriteLine($"2.{nameof(totalRead)} {totalRead}\n");
             if (totalRead > buffer.Length) { totalRead = buffer.Length; }
-            //if (posicaoAtualBuffer >= totalRead) { posicaoAtualBuffer -= totalRead; }
             Array.Copy(internalBuffer, buffer, totalRead);
             if (!CanSeek) { _bufferInicio = (int)_buffer.Position; }
-            SetDataAvailable();
             Console.WriteLine($"3.{nameof(_buffer.Length)} {_buffer.Length}");
             Console.WriteLine($"3.{nameof(_buffer.Position)} {_buffer.Position}");
             Console.WriteLine($"3.{nameof(totalRead)} {totalRead}");

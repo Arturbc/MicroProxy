@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Primitives;
+﻿using MicroProxy.Models;
+using Microsoft.Extensions.Primitives;
 using System.IO.Compression;
 using System.Net;
 using System.Text;
@@ -108,6 +109,18 @@ namespace MicroProxy.Helpers
             }
 
             return resultado;
+        }
+
+        public static void RedirectPreserveMethod(this HttpResponseFromListener response, string novoDestino, bool permanent = false, string? method = null)
+        {
+            method ??= response.HttpContext.Request.Method;
+
+            if (HttpMethods.IsGet(method)) { response.Redirect(novoDestino); }
+            else
+            {
+                response.Headers.Location = novoDestino;
+                response.StatusCode = permanent ? StatusCodes.Status308PermanentRedirect : StatusCodes.Status307TemporaryRedirect;
+            }
         }
     }
 }

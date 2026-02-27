@@ -507,43 +507,6 @@ namespace MicroProxy.Models
             }
         }
 
-        public static async Task<string?> SendFileAsync(this HttpResponseFromListener httpResponse, string? pathDiretorio, string? pathArquivo, CancellationToken cancellationToken = default)
-        {
-            if (pathDiretorio != null && pathDiretorio != "" && pathArquivo != null && pathArquivo != "")
-            {
-                var arquivo = new PhysicalFileProvider(pathDiretorio).GetFileInfo(pathArquivo);
-
-                if (arquivo.Exists)
-                {
-                    var provedor = new FileExtensionContentTypeProvider();
-                    await using var conteudoResposta = arquivo.CreateReadStream();
-
-                    httpResponse.ContentLength = arquivo.Length;
-
-                    if (provedor.TryGetContentType(pathArquivo, out string? tipoConteudo)) { httpResponse.ContentType = tipoConteudo; }
-
-                    await httpResponse.SendFileAsync(arquivo, cancellationToken);
-                    var resultado = await conteudoResposta.BodyAsStringAsync(tipoConteudo, cancellationToken: cancellationToken);
-
-                    return resultado;
-                }
-            }
-
-            return null;
-        }
-
-        private static void RedirectPreserveMethod(this HttpResponseFromListener response, string novoDestino, bool permanent = false, string? method = null)
-        {
-            method ??= response.HttpContext.Request.Method;
-
-            if (HttpMethods.IsGet(method)) { response.Redirect(novoDestino); }
-            else
-            {
-                response.Headers.Location = novoDestino;
-                response.StatusCode = permanent ? StatusCodes.Status308PermanentRedirect : StatusCodes.Status307TemporaryRedirect;
-            }
-        }
-
         public static Dictionary<string, string?> ColetarDicionarioVariaveis<T>(this string valor, T obj)
         {
             Dictionary<string, string?> dic = [];

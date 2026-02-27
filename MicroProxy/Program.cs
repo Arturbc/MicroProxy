@@ -87,16 +87,18 @@ foreach (var (listener, certificado) in tcpListeners)
             var client = await listener.AcceptTcpClientAsync(app.Lifetime.ApplicationStopping);
             var clientStream = client.GetStream();
             await Task.Delay(1, app.Lifetime.ApplicationStopping);
+            if (!clientStream.DataAvailable) { continue; }
             try { configuracao = new(); } catch { }
             var tarefa = Task.Run(async () =>
             {
+                using var clientTask = client;
+                await using var clientStreamTask = clientStream;
                 bool httpContextStarted = false;
                 IPEndPoint? ipRemoto = null;
                 IPEndPoint? ipLocal = null;
+
                 try
                 {
-                    using var clientTask = client;
-                    await using var clientStreamTask = clientStream;
                     using var cts = CancellationTokenSource
                         .CreateLinkedTokenSource(new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token, app.Lifetime.ApplicationStopping);
                     ipRemoto = (IPEndPoint)clientStreamTask.Socket.RemoteEndPoint!;
@@ -111,14 +113,6 @@ foreach (var (listener, certificado) in tcpListeners)
 
                     using var ctsAbort = new CancellationTokenSource();
                     using var ctsAbortLink = CancellationTokenSource.CreateLinkedTokenSource(app.Lifetime.ApplicationStopping, ctsAbort.Token);
-                    var bufferCheckAbort = new byte[1];
-                    void checkAbort(object? _)
-                    {
-                        try { if (!clientStreamTask.Socket.Poll(0, SelectMode.SelectRead)) { _ = clientStreamTask.ReadByte(); } }
-                        catch (IOException) { try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { } }
-                    }
-
-                    using var timer = new Timer(new TimerCallback(checkAbort), null, 100, 100);
                     using var scope = app.Services.CreateScope();
                     using HttpContextFromListener context = new(streamEmUso, clientStreamTask, ctsAbortLink.Token);
                     httpContextStarted = true;
@@ -144,8 +138,8 @@ foreach (var (listener, certificado) in tcpListeners)
                         if (erros.Count > 0) { ExibirLog(erros, level: LogLevel.Error); }
                     }
                 }
+                finally { ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {--tarefas})"); }
 
-                if (tarefas > 0) { ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {--tarefas})"); }
             });
 
             do { await Task.WhenAny(tarefa, Task.Delay(100, app.Lifetime.ApplicationStopping)); }
