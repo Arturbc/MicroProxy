@@ -251,7 +251,8 @@ namespace MicroProxy.Models
         public override bool CanWrite { get; }
         public override long Length => StreamRef.Length - _bufferInicio;
         public override long Position { get => StreamRef.Position - _bufferInicio; set => StreamRef.Position = value + _bufferInicio; }
-        
+        public bool DataAvailable => _clientStream.DataAvailable || _buffer.Length > _buffer.Position;
+
         internal BodyStream AtualizarBody(bool read = true, bool write = true, bool canSeek = false)
         {
             var novoBuffer = new MemoryStream();
@@ -310,12 +311,21 @@ namespace MicroProxy.Models
             {
                 do
                 {
+                    var ct = cts?.Token ?? cancellationToken;
+
                     if (bufferNovo)
                     {
+                        using var ctsRead = new CancellationTokenSource(100);
+                        using var ctsReadLink = CancellationTokenSource.CreateLinkedTokenSource(ctsRead.Token, ct);
                         int posicaoAtualBuffer = (int)_buffer.Position;
                         _buffer.Seek(_buffer.Length, SeekOrigin.Begin);
-                        if (_clientStream.Socket.Poll(0, SelectMode.SelectRead) || BaseStream is SslStream) { read = await BaseStream.ReadAsync(internalBuffer, cts?.Token ?? cancellationToken); }
-                        await _buffer.WriteAsync(internalBuffer.AsMemory(0, read), cancellationToken);
+                        try
+                        {
+                            if (_clientStream.Socket.Poll(0, SelectMode.SelectRead) || BaseStream is SslStream) { read = await BaseStream.ReadAsync(internalBuffer, ctsReadLink.Token); }
+                            await _buffer.WriteAsync(internalBuffer.AsMemory(0, read), cancellationToken);
+                        }
+                        catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)]))
+                        { if (ct.IsCancellationRequested) { throw new Exception("Ação cancelada...", ex); } }
                         posicaoAtualBuffer += Math.Min(read, buffer.Length);
                         _buffer.Seek(posicaoAtualBuffer, SeekOrigin.Begin);
                     }

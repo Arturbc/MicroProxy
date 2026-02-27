@@ -104,7 +104,6 @@ foreach (var (listener, certificado) in tcpListeners)
                     ipRemoto = (IPEndPoint)clientStreamTask.Socket.RemoteEndPoint!;
                     ipLocal = (IPEndPoint)clientStreamTask.Socket.LocalEndPoint!;
                     ExibirLog($"Cliente {ipRemoto} conectado a {ipLocal}... (Conexões ativas: {++tarefas})");
-
                     using var sslStream = new SslStream(clientStreamTask, false, (sender, cert, chain, errors) => true);
                     using var streamEmUso = certificado == null ? (Stream)clientStreamTask : sslStream;
 
@@ -116,9 +115,23 @@ foreach (var (listener, certificado) in tcpListeners)
                     using var scope = app.Services.CreateScope();
                     using HttpContextFromListener context = new(streamEmUso, clientStreamTask, ctsAbortLink.Token);
                     httpContextStarted = true;
-                    ExibirLog($"URL de conexão solicitado: {new Uri(context.Request.GetDisplayUrl()).Authority}");
                     var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();
                     accessor.HttpContext = context;
+                    ExibirLog($"URL de conexão solicitado: {new Uri(context.Request.GetDisplayUrl()).Authority}");
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(10000, ctsAbortLink.Token);
+                            while (!ctsAbortLink.IsCancellationRequested)
+                            {
+                                var body = context.Response.Body;
+                                if (!body.DataAvailable) { body.WriteByte(0xFE); }
+                                await Task.Delay(100, ctsAbortLink.Token);
+                            }
+                        }
+                        catch (Exception ex) when (ex.Contains([typeof(IOException), typeof(ObjectDisposedException)])) { try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { } }
+                    });
                     await context.ProcessarRequisicaoAsync(configuracao);
                 }
                 catch (Exception ex)
