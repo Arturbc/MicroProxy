@@ -239,9 +239,14 @@ namespace MicroProxy.Models
                                 }
                                 else
                                 {
-                                    using var tcpClient = new TcpClient(urlDestino.Host, urlDestino.Port) { NoDelay = true };
-                                    tcpClient.ReceiveTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds;
-                                    tcpClient.SendTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds;
+                                    using var tcpClient = new TcpClient(urlDestino.Host, urlDestino.Port)
+                                    {
+                                        NoDelay = true,
+                                        ReceiveTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds,
+                                        SendTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds
+                                    };
+                                    if (site.BufferReq > 0) { tcpClient.ReceiveBufferSize = site.BufferReq; }
+                                    if (site.BufferResp > 0) { tcpClient.SendBufferSize = site.BufferResp; }
                                     await using var serverStream = tcpClient.GetStream();
                                     using var serverSslStream = new SslStream(serverStream);
                                     using var memory = new MemoryStream();

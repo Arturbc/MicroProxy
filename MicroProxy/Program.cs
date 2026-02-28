@@ -88,8 +88,8 @@ foreach (var (listener, certificado) in tcpListeners)
         {
             var client = await listener.AcceptTcpClientAsync(app.Lifetime.ApplicationStopping);
             var clientStream = client.GetStream();
-            await Task.Delay(10, app.Lifetime.ApplicationStopping);
-            if (!clientStream.DataAvailable) { continue; }
+            await Task.Delay(1, app.Lifetime.ApplicationStopping);
+            if (!clientStream.Socket.Poll(0, SelectMode.SelectRead)) { continue; }
             try { configuracao = new(); } catch { }
             var tarefa = Task.Run(async () =>
             {
@@ -131,31 +131,32 @@ foreach (var (listener, certificado) in tcpListeners)
                 }
                 catch (Exception ex)
                 {
-                    if (httpContextStarted || !ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)]))
+                    try
                     {
-                        List<string> erros = [];
-                        var e = ex;
-
-                        while (e != null)
+                        if (httpContextStarted || !ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)]))
                         {
-                            erros.Add($"[{e.GetType().FullName}] {e.Message}");
-                            if (!string.IsNullOrEmpty(e.StackTrace)) { erros.Add(e.StackTrace.Replace(" at ", "\nat ") + "\n"); }
-                            e = e.InnerException;
-                        }
+                            List<string> erros = [];
+                            var e = ex;
 
-                        if (erros.Count > 0) { ExibirLog(erros, level: LogLevel.Error); }
+                            while (e != null)
+                            {
+                                erros.Add($"[{e.GetType().FullName}] {e.Message}");
+                                if (!string.IsNullOrEmpty(e.StackTrace)) { erros.Add(e.StackTrace.Replace(" at ", "\nat ") + "\n"); }
+                                e = e.InnerException;
+                            }
+
+                            if (erros.Count > 0) { ExibirLog(erros, level: LogLevel.Error); }
+                        }
                     }
+                    catch { }
                 }
-                finally
-                {
-                    await clientStreamTask.Socket.DisconnectAsync(false, app.Lifetime.ApplicationStopping);
-                    clientStreamTask.Socket.Close();
-                    ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {--tarefas})");
-                }
+
+                ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {--tarefas})");
+                await clientStreamTask.Socket.DisconnectAsync(false, app.Lifetime.ApplicationStopping);
+                clientStreamTask.Socket.Close();
             });
 
-            do { await Task.WhenAny(tarefa, Task.Delay(100, app.Lifetime.ApplicationStopping)); }
-            while (!tarefa.IsCompleted && clientStream.DataAvailable);
+            await Task.WhenAny(tarefa);
         }
     }));
 }
