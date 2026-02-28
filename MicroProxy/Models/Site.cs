@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
 using System.Text.RegularExpressions;
+using static MicroProxy.Helpers.FuncoesHelper;
 
 namespace MicroProxy.Models
 {
@@ -211,48 +212,6 @@ namespace MicroProxy.Models
                 .Union(GetType().GetFields().Select(f => "##" + f.Name + "##")).Order()];
 
             if (variaveis.Length != 0) ExibirLog(variaveis, "Variáveis disponíveis:", ", ");
-        }
-
-        public static void ExibirLog(string mensagem, string? scope = null, LogLevel level = LogLevel.Information, bool includeScopes = true, bool singleLine = true, string formatoHora = "")
-            => ExibirLog([mensagem], scope, level, " ", includeScopes, singleLine, formatoHora);
-
-        public static void ExibirLog(IEnumerable<string> mensagens, string? scope = null, string separadorLogs = " ",
-            LogLevel level = LogLevel.Information, bool includeScopes = true, bool singleLine = true, string formatoHora = "")
-                => ExibirLog(mensagens, scope, level, separadorLogs, includeScopes, singleLine, formatoHora);
-
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1873:Evitar registros em log que possam ser caros", Justification = "É necessário para poder organizar os logs dinamicamente")]
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2254:O modelo deve ser uma expressão estática", Justification = "É necessário para usar texto variável.")]
-        public static void ExibirLog(IEnumerable<string> mensagens, string? scope, LogLevel level, string separadorLogs = " ", bool includeScopes = true, bool singleLine = true, string formatoHora = "")
-        {
-            if (string.IsNullOrEmpty(formatoHora))
-            {
-                formatoHora = "HH:mm:ss ";
-            }
-
-            using ILoggerFactory loggerFactory =
-                LoggerFactory.Create(builder =>
-                    builder.AddSimpleConsole(options =>
-                    {
-                        options.IncludeScopes = includeScopes;
-                        options.SingleLine = singleLine;
-                        options.TimestampFormat = formatoHora;
-                    }));
-            ILogger<Program> logger = loggerFactory.CreateLogger<Program>();
-
-            if (scope != null)
-            {
-                using (logger.BeginScope(scope))
-                {
-                    logger.Log(level, string.Join(separadorLogs, mensagens));
-                }
-            }
-            else logger.Log(level, string.Join(separadorLogs, mensagens));
-        }
-        public static string ProcessarPath(string path)
-        {
-            if (path.Trim() != "") { path = Path.GetFullPath(Environment.ExpandEnvironmentVariables(path)); }
-
-            return path;
         }
 
         public void InicializarExecutavel()

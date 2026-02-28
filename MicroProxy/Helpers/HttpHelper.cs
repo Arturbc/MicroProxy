@@ -53,17 +53,23 @@ namespace MicroProxy.Helpers
             => MontarCabecalhoPacote(protocol, statusCode, headers.ToDictionary());
 
         public static string MontarCabecalhoPacote(string protocol, HttpStatusCode statusCode, Dictionary<string, StringValues> headers)
-            => $"{protocol} {(int)statusCode} {statusCode}\r\n" +
-                string.Join("", headers.Select(h => $"{h.Key}: {h.Value}\r\n")) +
-                "\r\n";
+            => MontarInicioCabecalhoPacote(protocol, statusCode) + MontarHeadersCabecalhoPacote(headers.ToDictionary());
+
+        public static string MontarInicioCabecalhoPacote(string protocol, HttpStatusCode statusCode)
+            => $"{protocol} {(int)statusCode} {statusCode}\r\n";
 
         public static string MontarCabecalhoPacote(string protocol, string url, string method, IHeaderDictionary headers)
             => MontarCabecalhoPacote(protocol, url, method, headers.ToDictionary());
 
         public static string MontarCabecalhoPacote(string protocol, string url, string method, Dictionary<string, StringValues> headers)
-            => $"{method} {url} {protocol}\r\n" +
-                string.Join("", headers.Select(h => $"{h.Key}: {h.Value}\r\n")) +
-                "\r\n";
+            => MontarInicioCabecalhoPacote(protocol, url, method) + MontarHeadersCabecalhoPacote(headers.ToDictionary());
+
+        public static string MontarHeadersCabecalhoPacote(IHeaderDictionary headers) => MontarHeadersCabecalhoPacote(headers.ToDictionary());
+
+        public static string MontarHeadersCabecalhoPacote(Dictionary<string, StringValues> headers) => string.Join("", headers.Select(h => $"{h.Key}: {h.Value}\r\n")) + "\r\n";
+
+        public static string MontarInicioCabecalhoPacote(string protocol, string url, string method)
+            => $"{method} {url} {protocol}\r\n";
 
         public static Stream Compactar(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null,
             CompressionLevel compressionLevel = CompressionLevel.Optimal) => conteudoResposta.ProcessarCompactacao(compressionLevel, tipoConteudo, codecConteudo);

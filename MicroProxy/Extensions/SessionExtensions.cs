@@ -3,9 +3,9 @@ using System.Diagnostics;
 
 namespace MicroProxy.Extensions
 {
+    [DebuggerNonUserCode]
     public static class SessionExtensions
     {
-        [DebuggerNonUserCode]
         public static void SetObjectAsJson(this ISession session, string key, object value)
         {
             session.SetString(key, JsonConvert.SerializeObject(value, Formatting.None, new JsonSerializerSettings { ReferenceLoopHandling = ReferenceLoopHandling.Ignore }));

@@ -244,6 +244,7 @@ namespace MicroProxy.Models
         private readonly MemoryStream _buffer;
         private readonly HttpPacoteFromListener _httpPacote;
         private readonly NetworkStream _clientStream;
+        private bool checkedState = false;
         private Stream StreamRef => CanSeek ? _buffer : BaseStream;
         public Stream BaseStream { get; }
         public override bool CanRead { get; }
@@ -267,10 +268,32 @@ namespace MicroProxy.Models
             if (_httpPacote is HttpResponseFromListener httpResponse && !httpResponse.HasStarted)
             {
                 httpResponse.GetType().GetProperty(nameof(httpResponse.HasStarted))!.SetValue(httpResponse, true);
-                return MontarCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode, httpResponse.Headers);
+                return checkedState ? MontarHeadersCabecalhoPacote(httpResponse.Headers) :
+                    MontarCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode, httpResponse.Headers);
             }
 
             return "";
+        }
+
+        public bool CheckState()
+        {
+            try
+            {
+                if (!DataAvailable && _httpPacote is HttpResponseFromListener httpResponse)
+                {
+                    _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
+
+                    if (!checkedState)
+                    {
+                        checkedState = true;
+                        BaseStream.Write(Encoding.UTF8.GetBytes(MontarInicioCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode)));
+                    }
+
+                    BaseStream.WriteByte(0xFE);
+                }
+            }
+            catch (IOException) { return false; }
+            return true;
         }
 
         public override void Flush()

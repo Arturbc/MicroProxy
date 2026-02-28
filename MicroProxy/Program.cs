@@ -6,6 +6,8 @@ using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
+using static MicroProxy.Helpers.FuncoesHelper;
+using static MicroProxy.Helpers.CriptografiaHelper;
 using static MicroProxy.Models.Configuracao;
 using static MicroProxy.Models.Site;
 
@@ -59,7 +61,7 @@ foreach (string url in urls)
     if (!string.IsNullOrEmpty(certificadoStr))
     {
         if (porta == 80 && !ipPorta.Groups["porta"].Success) { porta = 443; }
-        X509Certificate2? certificado = UtilsHelper.ObterCertificado(certificadoStr, configuracao.CertificadoPrivadoSenha, configuracao.CertificadoPrivadoChave
+        X509Certificate2? certificado = ObterCertificado(certificadoStr, configuracao.CertificadoPrivadoSenha, configuracao.CertificadoPrivadoChave
             , UtilsHelper.CertificadoEKUOID.Servidor, !https);
         https = true;
         tcpListeners.Add((new TcpListener(ip, porta), certificado));
@@ -120,17 +122,10 @@ foreach (var (listener, certificado) in tcpListeners)
                     ExibirLog($"URL de conexão solicitado: {new Uri(context.Request.GetDisplayUrl()).Authority}");
                     _ = Task.Run(async () =>
                     {
-                        try
-                        {
-                            await Task.Delay(10000, ctsAbortLink.Token);
-                            while (!ctsAbortLink.IsCancellationRequested)
-                            {
-                                var body = context.Response.Body;
-                                if (!body.DataAvailable) { body.WriteByte(0xFE); }
-                                await Task.Delay(100, ctsAbortLink.Token);
-                            }
-                        }
-                        catch (Exception ex) when (ex.Contains([typeof(IOException), typeof(ObjectDisposedException)])) { try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { } }
+                        await Task.Delay(5000, ctsAbortLink.Token);
+                        while (!ctsAbortLink.IsCancellationRequested && context.Response.Body.CheckState())
+                        { await Task.Delay(100, ctsAbortLink.Token); }
+                        try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { }
                     });
                     await context.ProcessarRequisicaoAsync(configuracao);
                 }
@@ -151,8 +146,12 @@ foreach (var (listener, certificado) in tcpListeners)
                         if (erros.Count > 0) { ExibirLog(erros, level: LogLevel.Error); }
                     }
                 }
-                finally { ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {--tarefas})"); }
-
+                finally
+                {
+                    await clientStreamTask.Socket.DisconnectAsync(false, app.Lifetime.ApplicationStopping);
+                    clientStreamTask.Socket.Close();
+                    ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {--tarefas})");
+                }
             });
 
             do { await Task.WhenAny(tarefa, Task.Delay(100, app.Lifetime.ApplicationStopping)); }

@@ -1,17 +1,14 @@
 ﻿using MicroProxy.Extensions;
-using Microsoft.AspNetCore.StaticFiles;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
 using System.Net;
 using System.Net.Mime;
 using System.Net.Security;
 using System.Net.Sockets;
-using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
 using static MicroProxy.Helpers.HttpHelper;
+using static MicroProxy.Helpers.FuncoesHelper;
 using static MicroProxy.Models.Configuracao;
 
 namespace MicroProxy.Models
@@ -47,48 +44,6 @@ namespace MicroProxy.Models
         {
             get => Sessao?.GetObjectFromJson<string>(PATH_SITE_ORIGEM_REDIRECT);
             private set { if (value != null) Sessao?.SetObjectAsJson(PATH_SITE_ORIGEM_REDIRECT, value); else Sessao?.Remove(PATH_SITE_ORIGEM_REDIRECT); }
-        }
-
-        public static X509Certificate2 ObterCertificado(string path, string? senha = null, string? pathChave = null, string? ekuoid = null, bool exibirLog = false)
-        {
-            X509Certificate2? certificado = null;
-            string pathArquivoCertificado = Site.ProcessarPath(path);
-            bool certificadoArquivo = File.Exists(pathArquivoCertificado);
-            string certificadoPrivado = path;
-            string? chave = Site.ProcessarPath(pathChave ?? "");
-
-            if (certificadoArquivo) { certificado = X509CertificateLoader.LoadPkcs12FromFile(pathArquivoCertificado, senha); }
-            else
-            {
-                using X509Store x509StoreUsuario = new(StoreLocation.CurrentUser);
-                using X509Store x509StorePC = new(StoreLocation.LocalMachine);
-
-                x509StoreUsuario.Open(OpenFlags.ReadOnly);
-                x509StorePC.Open(OpenFlags.ReadOnly);
-
-                var agora = DateTime.Now;
-                var certificados = x509StoreUsuario.Certificates.Union(x509StorePC.Certificates)
-                    .Where(c => c.Extensions.Any(e => e is X509EnhancedKeyUsageExtension ekue && (ekuoid == null || ekue.EnhancedKeyUsages[ekuoid] != null)))
-                    .OrderByDescending(c => c.NotAfter >= agora).ThenByDescending(c => c.NotBefore <= agora).ThenByDescending(c => c.NotAfter).ThenByDescending(c => c.NotBefore);
-
-                try { certificado = certificados.FirstOrDefault(c => c.Subject == certificadoPrivado) ?? certificados.First(c => c.Subject.Contains(certificadoPrivado)); }
-                catch (InvalidOperationException ex) { var e = ex; throw new($"Arquivo ou caminho de certificado \"{certificadoPrivado}\" inválido!", e); }
-
-                if (exibirLog)
-                {
-                    string[] mensagensLog = [.. certificados.Select(c =>  $"{(c.Subject == certificado.Subject ? "(" : "")}Path/Destinatário " +
-                                         $"\"{c.Subject}\" - Valido de {c.NotBefore} até {c.NotAfter}{(c.Subject == certificado.Subject ? ")" : "")}")];
-
-                    Site.ExibirLog(mensagensLog, "Certificados de validação de servidor disponíveis:", "; ");
-                }
-
-                x509StoreUsuario.Close();
-                x509StorePC.Close();
-            }
-
-            if (!certificado.HasPrivateKey && chave != null) { certificado = certificado.CopyWithPrivateKey(CreateRsaFromPem(chave, senha)); }
-
-            return certificado;
         }
 
         public static async Task ProcessarRequisicaoAsync(this HttpContextFromListener context, Configuracao configuracao)
@@ -202,7 +157,7 @@ namespace MicroProxy.Models
                         string? pathUrlDestino = null;
 
                         urlDestino = new(site.UrlDestino);
-                        Site.ExibirLog($"URL de destino: {Site.ExibirUrlAjustada(HttpMethods.IsConnect(request.Method) ? urlDestino.Authority : urlDestino.OriginalString)}");
+                        ExibirLog($"URL de destino: {Site.ExibirUrlAjustada(HttpMethods.IsConnect(request.Method) ? urlDestino.Authority : urlDestino.OriginalString)}");
                         site.PathAtualAdicional = urlDestino.AbsolutePath;
 
                         if (tratarUrl)
@@ -278,7 +233,7 @@ namespace MicroProxy.Models
                                 if (HttpMethods.IsGet(request.Method) && Path.HasExtension(pathAbsolutoUrlAtual)
                                     && configuracao.ArquivosEstaticos != null && configuracao.ArquivosEstaticos != "")
                                 {
-                                    string pathDiretorioArquivo = Site.ProcessarPath(configuracao.ArquivosEstaticos.ProcessarStringSubstituicao(site));
+                                    string pathDiretorioArquivo = ProcessarPath(configuracao.ArquivosEstaticos.ProcessarStringSubstituicao(site));
 
                                     site.RespBody = await response.SendFileAsync(pathDiretorioArquivo, pathAbsolutoUrlAtual.TrimStart('/'), context.RequestAborted);
                                 }
@@ -429,7 +384,7 @@ namespace MicroProxy.Models
 
                     if (configuracao.TratamentoErroInterno != null && configuracao.TratamentoErroInterno != "")
                     {
-                        string pathArquivo = Site.ProcessarPath(configuracao.TratamentoErroInterno.ProcessarStringSubstituicao(site));
+                        string pathArquivo = ProcessarPath(configuracao.TratamentoErroInterno.ProcessarStringSubstituicao(site));
                         string[] partesPath = CharSeparadorDiretorioUrlRegex().Split(pathArquivo);
 
                         site.RespBody = await response
@@ -458,7 +413,7 @@ namespace MicroProxy.Models
                 {
                     if (tratarUrl || !log.Value.IgnorarArquivosEstaticos)
                     {
-                        string pathLog = Site.ProcessarPath(Site.CharsInvalidosPathArquivoRegex().Replace(log.Value.Path.ProcessarStringSubstituicao(site), "_"));
+                        string pathLog = ProcessarPath(Site.CharsInvalidosPathArquivoRegex().Replace(log.Value.Path.ProcessarStringSubstituicao(site), "_"));
                         string nomeArquivo = Site.CharsInvalidosPathArquivoRegex().Replace(log.Key.ProcessarStringSubstituicao(site), "_").Trim('/', '\\').Replace("/", "_").Replace(@"\", "_");
 
                         if (pathLog != "")
@@ -544,50 +499,6 @@ namespace MicroProxy.Models
             return valor;
         }
 
-        public static RSA CreateRsaFromPem(string pathKey, string? senha = null)
-        {
-            RSA rsa = RSA.Create();
-            string conteudoChave = File.ReadAllText(pathKey);
-
-            try
-            {
-                if (senha != null) { rsa.ImportFromEncryptedPem(conteudoChave, senha); }
-                else { rsa.ImportFromPem(conteudoChave); }
-            }
-            catch (ArgumentException ex)
-            {
-                byte[] chaveFonte = Convert.FromBase64String(ElemsKeyCertRegex().Replace(conteudoChave, ""));
-
-                try
-                {
-                    if (senha != null) { rsa.ImportEncryptedPkcs8PrivateKey(senha, chaveFonte, out _); }
-                    else { rsa.ImportPkcs8PrivateKey(chaveFonte, out _); }
-                }
-                catch (ArgumentException ex2)
-                {
-                    try { rsa.ImportRSAPrivateKey(chaveFonte, out _); }
-                    catch (ArgumentException ex3) { throw new ArgumentException(ex3.Message, new ArgumentException(ex2.Message, ex)); }
-                }
-            }
-
-            if (OperatingSystem.IsWindows())
-            {
-                CspParameters cspParameters = new()
-                {
-                    KeyContainerName = pathKey,
-                    Flags = CspProviderFlags.UseNonExportableKey,
-                };
-
-                RSACryptoServiceProvider rsaPersistente = new(cspParameters);
-
-                rsaPersistente.ImportParameters(rsa.ExportParameters(true));
-                rsa.Dispose();
-                rsa = rsaPersistente;
-            }
-
-            return rsa;
-        }
-
         [GeneratedRegex($"(?<=(?:^|(?:; *))){NOME_COOKIE}[^;]+(?:(?:; *)|(?: *$))")]
         private static partial Regex CookieMicroproxyRegex();
 
@@ -602,8 +513,5 @@ namespace MicroProxy.Models
 
         [GeneratedRegex(@"/|\\")]
         private static partial Regex CharSeparadorDiretorioUrlRegex();
-
-        [GeneratedRegex(@"(?:-{5}[\w ]+-{5})|[\r\n]")]
-        private static partial Regex ElemsKeyCertRegex();
     }
 }
