@@ -6,8 +6,8 @@ using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
-using static MicroProxy.Helpers.FuncoesHelper;
 using static MicroProxy.Helpers.CriptografiaHelper;
+using static MicroProxy.Helpers.FuncoesHelper;
 using static MicroProxy.Models.Configuracao;
 using static MicroProxy.Models.Site;
 

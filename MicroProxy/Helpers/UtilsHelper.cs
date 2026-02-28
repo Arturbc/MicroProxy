@@ -7,8 +7,8 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
-using static MicroProxy.Helpers.HttpHelper;
 using static MicroProxy.Helpers.FuncoesHelper;
+using static MicroProxy.Helpers.HttpHelper;
 using static MicroProxy.Models.Configuracao;
 
 namespace MicroProxy.Models
