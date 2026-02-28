@@ -279,9 +279,7 @@ namespace MicroProxy.Models
                                                         .Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase))).ToDictionary();
 
                                                 headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
-
                                                 site.ReqHeaders = JsonConvert.SerializeObject(headersReq.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
-
                                                 var cabecalho = MontarCabecalhoPacote(request.Protocol, site.PathAndQueryAtual, request.Method, headersReq);
 
                                                 if (request.Body.CanRead) { request.EnableBuffering(); if (request.Body.CanSeek) { request.Body.Seek(0, SeekOrigin.Begin); } }
