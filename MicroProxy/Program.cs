@@ -93,7 +93,7 @@ foreach (var (listener, certificado) in tcpListeners)
             try { configuracao = new(); } catch { }
             _ = Task.Run(async () =>
             {
-                string url = "";
+                string url = "Destino inválido!";
                 using var clientTask = client;
                 await using var clientStreamTask = clientStream;
                 bool httpContextStarted = false;
@@ -122,9 +122,9 @@ foreach (var (listener, certificado) in tcpListeners)
                     ExibirLog($"URL de conexão solicitado: {url}");
                     _ = Task.Run(async () =>
                     {
-                        await Task.Delay(2000, ctsAbortLink.Token);
+                        await Task.Delay(1000, ctsAbortLink.Token);
                         while (!ctsAbortLink.IsCancellationRequested && await context.Response.Body.CheckStateAsync())
-                        { await Task.Delay(500, ctsAbortLink.Token); }
+                        { await Task.Delay(200, ctsAbortLink.Token); }
                         try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { }
                     });
 

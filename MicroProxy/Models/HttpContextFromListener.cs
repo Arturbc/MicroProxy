@@ -356,7 +356,7 @@ namespace MicroProxy.Models
                         {
                             bufferNovo = true;
                             cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,
-                                new CancellationTokenSource(_buffer.Length == 0 ? _httpPacote.Timeout * 1000 : 500).Token);
+                                new CancellationTokenSource(_buffer.Length == 0 ? _httpPacote.Timeout * 1000 : 200).Token);
                             await Task.Delay(1, cts.Token);
                             continue;
                         }
@@ -372,7 +372,15 @@ namespace MicroProxy.Models
             var fimBuffer = totalRead + offset;
             _buffer.Seek(posicaoAtualBuffer, SeekOrigin.Begin);
             Array.Copy(internalBuffer, buffer, fimBuffer);
-            if (!CanSeek) { _bufferInicio = (int)_buffer.Position; }
+            if (!CanSeek)
+            {
+                if (_buffer.Position == _buffer.Length)
+                {
+                    _buffer.Seek(0, SeekOrigin.Begin);
+                    _buffer.SetLength(0);
+                }
+                _bufferInicio = (int)_buffer.Position;
+            }
 
             return totalRead;
         }
@@ -388,7 +396,7 @@ namespace MicroProxy.Models
             var cabecalho = MontarCabecalho();
             if (!string.IsNullOrEmpty(cabecalho)) { await _buffer.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cancellationToken); }
             await _buffer.WriteAsync(buffer.AsMemory(offset, count), cancellationToken);
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(100).Token);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(200).Token);
             _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
             await BaseStream.WriteAsync(_buffer.ToArray().AsMemory(0, (int)_buffer.Position), cts.Token);
             _buffer.Seek(0, SeekOrigin.Begin);

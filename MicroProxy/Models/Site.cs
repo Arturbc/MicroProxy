@@ -25,7 +25,6 @@ namespace MicroProxy.Models
         private int? _bufferReq;
         private int? _bufferResp;
         private int? _segundosTempoMax;
-        private bool? _usarProxy;
         private string? _exePath = null;
         private string? _exeArgumentos = null!;
         private string? _exePathDiretorio = null!;
@@ -187,7 +186,6 @@ namespace MicroProxy.Models
         public int BufferReq { get => _bufferReq ?? 0; set => _bufferReq = _bufferReq == null ? value : _bufferReq; }
         public int BufferResp { get => _bufferResp ?? 0; set => _bufferResp = _bufferResp == null ? value : _bufferResp; }
         public int SegundosTempoMax { get => _segundosTempoMax ?? 0; set => _segundosTempoMax = _segundosTempoMax == null ? value : _segundosTempoMax; }
-        public bool UsarProxy { get => _usarProxy ?? false; set => _usarProxy = _usarProxy == null ? value : _usarProxy; }
         public string? ExePath { get => _exePath; set => _exePath ??= !string.IsNullOrEmpty(value) ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePath; }
         public string? ExeArgumentos { get => _exeArgumentos; set => _exeArgumentos ??= !string.IsNullOrEmpty(value) ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exeArgumentos; }
         public string? ExePathDiretorio { get => _exePathDiretorio; set => _exePathDiretorio ??= !string.IsNullOrEmpty(value) ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePathDiretorio; }
