@@ -91,6 +91,9 @@ foreach (var (listener, certificado) in tcpListeners)
             await Task.Delay(1, app.Lifetime.ApplicationStopping);
             if (!clientStream.Socket.Poll(0, SelectMode.SelectRead)) { continue; }
             try { configuracao = new(); } catch { }
+            if (configuracao.BufferReq > 0) { clientStream.Socket.ReceiveBufferSize = configuracao.BufferReq; }
+            if (configuracao.BufferResp > 0) { clientStream.Socket.SendBufferSize = configuracao.BufferResp; }
+            clientStream.Socket.NoDelay = configuracao.SemDelay;
             _ = Task.Run(async () =>
             {
                 string url = "Destino inválido!";

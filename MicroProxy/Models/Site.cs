@@ -22,6 +22,7 @@ namespace MicroProxy.Models
         private bool? _ignorarCertificadoDestino = null;
         private Dictionary<string, string?[]>? _requestHeadersAdicionais = null;
         private Dictionary<string, string?[]>? _responseHeadersAdicionais = null;
+        private bool? _semDelay;
         private int? _bufferReq;
         private int? _bufferResp;
         private int? _segundosTempoMax;
@@ -183,6 +184,7 @@ namespace MicroProxy.Models
         public string[] Methods { get => _methods!; set => _methods ??= value ?? ["*"]; }
         public Dictionary<string, string?[]>? RequestHeadersAdicionais { get => _requestHeadersAdicionais; set => _requestHeadersAdicionais ??= value; }
         public Dictionary<string, string?[]>? ResponseHeadersAdicionais { get => _responseHeadersAdicionais; set => _responseHeadersAdicionais ??= value; }
+        public bool SemDelay { get => _semDelay ?? false; set => _semDelay = _semDelay == null ? value : _semDelay; }
         public int BufferReq { get => _bufferReq ?? 0; set => _bufferReq = _bufferReq == null ? value : _bufferReq; }
         public int BufferResp { get => _bufferResp ?? 0; set => _bufferResp = _bufferResp == null ? value : _bufferResp; }
         public int SegundosTempoMax { get => _segundosTempoMax ?? 0; set => _segundosTempoMax = _segundosTempoMax == null ? value : _segundosTempoMax; }

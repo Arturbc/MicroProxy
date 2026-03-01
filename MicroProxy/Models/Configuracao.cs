@@ -18,6 +18,9 @@
         public string? CertificadoPrivado { get; protected set; }
         public string? CertificadoPrivadoChave { get; protected set; }
         public string? CertificadoPrivadoSenha { get; protected set; }
+        public int BufferReq { get; protected set; }
+        public int BufferResp { get; protected set; }
+        public bool SemDelay { get; protected set; }
         public string? ArquivosEstaticos { get; protected set; }
         public string? CompressionResponse { get; protected set; }
         public string? TratamentoErroInterno { get; protected set; }
@@ -48,6 +51,9 @@
             ArquivosEstaticos = ConfigurationRoot.GetValue<string>(nameof(ArquivosEstaticos));
             CompressionResponse = ConfigurationRoot.GetValue<string>(nameof(CompressionResponse));
             TratamentoErroInterno = ConfigurationRoot.GetValue<string>(nameof(TratamentoErroInterno));
+            BufferReq = ConfigurationRoot.GetValue<int>(nameof(BufferReq));
+            BufferResp = ConfigurationRoot.GetValue<int>(nameof(BufferResp));
+            SemDelay = ConfigurationRoot.GetValue<bool>(nameof(SemDelay));
             ExtensoesUrlNaoRecurso = ConfigurationRoot.GetSection(nameof(ExtensoesUrlNaoRecurso)).Get<string[]>() ?? [];
             Sites = ConfigurationRoot.GetSection(nameof(Sites)).Get<Site[]>()!;
             AllowOrigins = ConfigurationRoot.GetSection($"Cors:{nameof(AllowOrigins)}").Get<string[]>() ?? [];

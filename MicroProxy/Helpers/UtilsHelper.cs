@@ -241,7 +241,7 @@ namespace MicroProxy.Models
                                 {
                                     using var tcpClient = new TcpClient(urlDestino.Host, urlDestino.Port)
                                     {
-                                        NoDelay = true,
+                                        NoDelay = site.SemDelay,
                                         ReceiveTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds,
                                         SendTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds
                                     };
