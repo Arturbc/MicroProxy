@@ -122,9 +122,9 @@ foreach (var (listener, certificado) in tcpListeners)
                     ExibirLog($"URL de conexão solicitado: {new Uri(context.Request.GetDisplayUrl()).Authority}");
                     _ = Task.Run(async () =>
                     {
-                        await Task.Delay(5000, ctsAbortLink.Token);
+                        await Task.Delay(1000, ctsAbortLink.Token);
                         while (!ctsAbortLink.IsCancellationRequested && context.Response.Body.CheckState())
-                        { await Task.Delay(100, ctsAbortLink.Token); }
+                        { await Task.Delay(1, ctsAbortLink.Token); }
                         try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { }
                     });
                     await context.ProcessarRequisicaoAsync(configuracao);
