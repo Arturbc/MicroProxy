@@ -101,8 +101,6 @@ foreach (var (listener, certificado) in tcpListeners)
 
                 try
                 {
-                    using var cts = CancellationTokenSource
-                        .CreateLinkedTokenSource(new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token, app.Lifetime.ApplicationStopping);
                     ipRemoto = (IPEndPoint)clientStreamTask.Socket.RemoteEndPoint!;
                     ipLocal = (IPEndPoint)clientStreamTask.Socket.LocalEndPoint!;
                     ExibirLog($"Cliente {ipRemoto} conectado a {ipLocal}... (Conexões ativas: {++tarefas})");
@@ -120,13 +118,16 @@ foreach (var (listener, certificado) in tcpListeners)
                     var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();
                     accessor.HttpContext = context;
                     ExibirLog($"URL de conexão solicitado: {new Uri(context.Request.GetDisplayUrl()).Authority}");
-                    _ = Task.Run(async () =>
+                    if (!HttpMethods.IsConnect(context.Request.Method))
                     {
-                        await Task.Delay(1000, ctsAbortLink.Token);
-                        while (!ctsAbortLink.IsCancellationRequested && context.Response.Body.CheckState())
-                        { await Task.Delay(1, ctsAbortLink.Token); }
-                        try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { }
-                    });
+                        _ = Task.Run(async () =>
+                        {
+                            await Task.Delay(2000, ctsAbortLink.Token);
+                            while (!ctsAbortLink.IsCancellationRequested && await context.Response.Body.CheckStateAsync())
+                            { await Task.Delay(100, ctsAbortLink.Token); }
+                            try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { }
+                        });
+                    }
                     await context.ProcessarRequisicaoAsync(configuracao);
                 }
                 catch (Exception ex)

@@ -266,7 +266,7 @@ namespace MicroProxy.Models
                                         if (HttpMethods.IsConnect(request.Method))
                                         {
                                             response.Headers.Connection = "close";
-                                            tarefasAsync.Add(response.Body.BaseStream.CopyToAsync(site.BufferResp, [serverStreamEmUso], context.RequestAborted));
+                                            tarefasAsync.Add(request.Body.BaseStream.CopyToAsync(site.BufferReq, [serverStreamEmUso], context.RequestAborted));
                                             tarefasAsync.Add(serverStreamEmUso.CopyToAsync(site.BufferResp, [response.Body.BaseStream], context.RequestAborted));
                                         }
                                         else
@@ -292,7 +292,7 @@ namespace MicroProxy.Models
                                                 try
                                                 {
                                                     await serverStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho));
-                                                    if (request.Body.CanRead) { await request.Body.CopyToAsync(site.BufferResp, [serverStream, memory], context.RequestAborted); }
+                                                    if (request.Body.CanRead) { await request.Body.CopyToAsync(site.BufferReq, [serverStream, memory], context.RequestAborted); }
                                                     if (serverStream.CanWrite) { await serverStream.FlushAsync(context.RequestAborted); }
                                                 }
                                                 catch (Exception ex) { site.Exception = ex; }

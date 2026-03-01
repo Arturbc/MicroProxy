@@ -112,9 +112,8 @@ namespace MicroProxy.Models
         {
             string[] methodsSemBody = [HttpMethods.Head, HttpMethods.Get, HttpMethods.Connect, HttpMethods.Delete, HttpMethods.Trace];
             using var body = new BodyStream(stream, clientStream, this, true, false);
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(1000).Token, context.RequestAborted);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(100).Token, context.RequestAborted);
             string[] req = LerCabecalhoPacote(body, Headers, cts.Token);
-
             uri = new(req[1].Contains("://") || req[1].StartsWith('/') ? req[1] : "http://" + req[1], UriKind.RelativeOrAbsolute);
             Method = req[0];
             Path = uri.IsAbsoluteUri ? uri.AbsolutePath : uri.OriginalString;
@@ -159,9 +158,8 @@ namespace MicroProxy.Models
             {
                 using var body = new BodyStream(stream, clientStream, this, true, !HttpMethods.IsHead(HttpContext.Request.Method));
                 Timeout = context.Response.Timeout;
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(1000).Token, context.RequestAborted);
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(100).Token, context.RequestAborted);
                 string[] resp = LerCabecalhoPacote(body, Headers, cts.Token);
-
                 StatusCode = int.Parse(resp[1]);
                 Body = body.AtualizarBody(true, !HttpMethods.IsHead(HttpContext.Request.Method));
             }
@@ -245,7 +243,7 @@ namespace MicroProxy.Models
         private readonly MemoryStream _buffer;
         private readonly HttpPacoteFromListener _httpPacote;
         private readonly NetworkStream _clientStream;
-        private bool checkedState = false;
+        private bool _checkedState = false;
         private Stream StreamRef => CanSeek ? _buffer : BaseStream;
         public Stream BaseStream { get; }
         public override bool CanRead { get; }
@@ -275,22 +273,22 @@ namespace MicroProxy.Models
             return "";
         }
 
-        public bool CheckState()
+        public async Task<bool> CheckStateAsync()
         {
             try
             {
-                using var cts = new CancellationTokenSource(1000);
                 if (!DataAvailable && _httpPacote is HttpResponseFromListener httpResponse)
                 {
+                    using var cts = new CancellationTokenSource(100);
                     _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
 
-                    if (!checkedState)
+                    if (!_checkedState)
                     {
-                        checkedState = true;
-                        BaseStream.WriteAsync(Encoding.UTF8.GetBytes(MontarInicioCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode)), cts.Token).AsTask().Wait();
+                        _checkedState = true;
+                        await BaseStream.WriteAsync(Encoding.UTF8.GetBytes(MontarInicioCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode)), cts.Token);
                     }
 
-                    BaseStream.WriteAsync(new byte[] { 0xFE }, cts.Token).AsTask().Wait();
+                    await BaseStream.WriteAsync(new byte[] { 0xFE }, cts.Token);
                 }
             }
             catch (Exception ex) when (ex.Contains([typeof(IOException), typeof(OperationCanceledException), typeof(TaskCanceledException)])) { return false; }
@@ -339,14 +337,14 @@ namespace MicroProxy.Models
                         {
                             if (_clientStream.Socket.Poll(0, SelectMode.SelectRead) || BaseStream is SslStream)
                             {
-                                using var ctsRead = new CancellationTokenSource(1000);
+                                using var ctsRead = new CancellationTokenSource(200);
                                 using var ctsReadLink = CancellationTokenSource.CreateLinkedTokenSource(ctsRead.Token, ct);
                                 read = await BaseStream.ReadAsync(parteBuffer, ctsReadLink.Token);
                             }
                             if (read != 0) { await _buffer.WriteAsync(parteBuffer[..read], cancellationToken); posicaoAtualBuffer += read; }
                         }
                         catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)]))
-                        { if (ct.IsCancellationRequested) { throw new Exception("Ação cancelada...", ex); } }
+                        { if (ct.IsCancellationRequested) { throw new Exception("Ação cancelada...", ex); } else { await Task.Delay(1, ct); } }
                     }
                     else { read = await _buffer.ReadAsync(parteBuffer, cancellationToken); posicaoAtualBuffer = (int)_buffer.Position; }
                     totalRead += read;
@@ -358,7 +356,7 @@ namespace MicroProxy.Models
                         {
                             bufferNovo = true;
                             cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,
-                                new CancellationTokenSource(_buffer.Length == 0 ? _httpPacote.Timeout * 1000 : 1000).Token);
+                                new CancellationTokenSource(_buffer.Length == 0 ? _httpPacote.Timeout * 1000 : 500).Token);
                             await Task.Delay(1, cts.Token);
                             continue;
                         }
@@ -388,11 +386,12 @@ namespace MicroProxy.Models
         public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
             var cabecalho = MontarCabecalho();
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(1000).Token);
+            if (!string.IsNullOrEmpty(cabecalho)) { await _buffer.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cancellationToken); }
+            await _buffer.WriteAsync(buffer.AsMemory(offset, count), cancellationToken);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(100).Token);
             _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
-            if (!string.IsNullOrEmpty(cabecalho)) { await BaseStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cts.Token); }
-
-            await BaseStream.WriteAsync(buffer, cts.Token);
+            await BaseStream.WriteAsync(_buffer.ToArray().AsMemory(0, (int)_buffer.Position), cts.Token);
+            _buffer.Seek(0, SeekOrigin.Begin);
         }
 
         protected override void Dispose(bool disposing)
