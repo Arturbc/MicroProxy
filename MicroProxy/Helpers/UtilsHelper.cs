@@ -266,8 +266,10 @@ namespace MicroProxy.Models
                                         if (HttpMethods.IsConnect(request.Method))
                                         {
                                             response.Headers.Connection = "close";
-                                            tarefasAsync.Add(request.Body.BaseStream.CopyToAsync(site.BufferReq, [serverStreamEmUso], context.RequestAborted));
-                                            tarefasAsync.Add(serverStreamEmUso.CopyToAsync(site.BufferResp, [response.Body.BaseStream], context.RequestAborted));
+                                            await response.CompleteAsync();
+                                            tarefasAsync.Add(request.Body.BaseStream.CopyToAsync(serverStreamEmUso, context.RequestAborted));
+                                            tarefasAsync.Add(serverStreamEmUso.CopyToAsync(response.Body.BaseStream, context.RequestAborted));
+                                            await Task.WhenAny(tarefasAsync);
                                         }
                                         else
                                         {
@@ -365,6 +367,8 @@ namespace MicroProxy.Models
                                                 }
                                             }
                                         }
+                                        await response.CompleteAsync();
+                                        await Task.WhenAny(tarefasAsync);
                                     }
                                     catch { response.StatusCode = StatusCodes.Status502BadGateway; }
                                 }
@@ -405,7 +409,6 @@ namespace MicroProxy.Models
             }
 
             await response.CompleteAsync();
-            if (tarefasAsync.Count != 0) { await Task.WhenAny(tarefasAsync); }
             site ??= new();
 
             lock (_lock)
