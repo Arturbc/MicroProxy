@@ -93,6 +93,7 @@ foreach (var (listener, certificado) in tcpListeners)
             try { configuracao = new(); } catch { }
             _ = Task.Run(async () =>
             {
+                string url = "";
                 using var clientTask = client;
                 await using var clientStreamTask = clientStream;
                 bool httpContextStarted = false;
@@ -117,12 +118,13 @@ foreach (var (listener, certificado) in tcpListeners)
                     httpContextStarted = true;
                     var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();
                     accessor.HttpContext = context;
-                    ExibirLog($"URL de conexão solicitado: {new Uri(context.Request.GetDisplayUrl()).Authority}");
+                    url = new Uri(context.Request.GetDisplayUrl()).Authority;
+                    ExibirLog($"URL de conexão solicitado: {url}");
                     _ = Task.Run(async () =>
                     {
                         await Task.Delay(2000, ctsAbortLink.Token);
                         while (!ctsAbortLink.IsCancellationRequested && await context.Response.Body.CheckStateAsync())
-                        { await Task.Delay(100, ctsAbortLink.Token); }
+                        { await Task.Delay(500, ctsAbortLink.Token); }
                         try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { }
                     });
 
@@ -151,6 +153,7 @@ foreach (var (listener, certificado) in tcpListeners)
                 }
 
                 ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {--tarefas})");
+                ExibirLog($"URL de conexão desconectada: {url}");
                 await clientStreamTask.Socket.DisconnectAsync(false, app.Lifetime.ApplicationStopping);
                 clientStreamTask.Socket.Close();
             });
