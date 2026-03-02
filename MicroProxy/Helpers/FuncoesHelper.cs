@@ -104,15 +104,14 @@ namespace MicroProxy.Helpers
             => ExibirLog([mensagem], scope, level, " ", includeScopes, singleLine, formatoHora);
 
         public static void ExibirLog(IEnumerable<string> mensagens, string? scope = null, string separadorLogs = " ",
-            LogLevel level = LogLevel.Information, bool includeScopes = true, bool singleLine = true, string formatoHora = "")
-                => ExibirLog(mensagens, scope, level, separadorLogs, includeScopes, singleLine, formatoHora);
+            bool includeScopes = true, bool singleLine = true, string formatoHora = "")
+                => ExibirLog(mensagens, scope, LogLevel.Information, separadorLogs, includeScopes, singleLine, formatoHora);
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2254:O modelo deve ser uma expressão estática", Justification = "Foi necessário para receber a mensagem de log personalizada.")]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1873:Evitar registros em log que possam ser caros", Justification = "Foi necessário para receber a mensagem de log personalizada.")]
         public static void ExibirLog(IEnumerable<string> mensagens, string? scope, LogLevel level, string separadorLogs = " ", bool includeScopes = true, bool singleLine = true, string formatoHora = "")
         {
-            if (string.IsNullOrEmpty(formatoHora))
-            {
-                formatoHora = "HH:mm:ss ";
-            }
+            if (string.IsNullOrEmpty(formatoHora)) { formatoHora = "HH:mm:ss "; }
 
             using ILoggerFactory loggerFactory =
                 LoggerFactory.Create(builder =>
@@ -124,14 +123,8 @@ namespace MicroProxy.Helpers
                     }));
             ILogger<Program> logger = loggerFactory.CreateLogger<Program>();
 
-            if (scope != null)
-            {
-                using (logger.BeginScope(scope))
-                {
-                    logger.Log(level, string.Join(separadorLogs, mensagens));
-                }
-            }
-            else logger.Log(level, string.Join(separadorLogs, mensagens));
+            if (scope != null) { using (logger.BeginScope(scope)) { logger.Log(level, string.Join(separadorLogs, mensagens)); } }
+            else { logger.Log(level, string.Join(separadorLogs, mensagens)); }
         }
 
         public static string ObterTamanhoArquivo(this FileInfo fileInfo, string formatoTamanho = "N2", int tamByte = 1024)
@@ -171,7 +164,7 @@ namespace MicroProxy.Helpers
             => EnviarEmailAsync(destinatario, sender, html, SMTPs, assunto, prioridade, ssl, credentials).Result;
 
         public static async Task<bool> EnviarEmailAsync(string destinatario, MailAddress sender, string html, string[] SMTPs, string? assunto = null,
-                                                        MailPriority prioridade = MailPriority.Normal, bool ssl = false, NetworkCredential? credentials = null)
+            MailPriority prioridade = MailPriority.Normal, bool ssl = false, NetworkCredential? credentials = null, CancellationToken cancellationToken = default)
         {
             using var mail = new MailMessage();
             var recipient = new MailAddress(destinatario);
@@ -199,25 +192,20 @@ namespace MicroProxy.Helpers
                         DeliveryMethod = SmtpDeliveryMethod.Network
                     };
 
-                    await client.SendMailAsync(mail);
+                    await client.SendMailAsync(mail, cancellationToken);
 
                     return true;
                 }
                 catch (Exception ex)
-                {
-                    if (SMTP == SMTPs.Last())
-                    {
-                        var e = ex;
-
-                        throw new("Falha ao enviar e-mail!", e);
-                    }
-                }
+                { if (SMTP == SMTPs.Last()) { throw new("Falha ao enviar e-mail!", ex); } }
             }
 
             return false;
         }
 
-        public static bool Arquivo_Incrementar(string strCaminho, string strTexto)
+        public static bool ArquivoIncrementar(string strCaminho, string strTexto) => ArquivoIncrementarAsync(strCaminho, strTexto).Result;
+
+        public static async Task<bool> ArquivoIncrementarAsync(string strCaminho, string strTexto, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -254,7 +242,7 @@ namespace MicroProxy.Helpers
                         $"{strTexto}";
                 }
 
-                File.AppendAllText(strCaminho, $"\r\n{strTexto}\r\n");
+                await File.AppendAllTextAsync(strCaminho, $"\r\n{strTexto}\r\n", cancellationToken);
 
                 return true;
             }
@@ -303,10 +291,7 @@ namespace MicroProxy.Helpers
 
         public static string ProcessarPath(string path)
         {
-            if (path.Trim() != "")
-            {
-                path = Path.GetFullPath(Environment.ExpandEnvironmentVariables(path));
-            }
+            if (path.Trim() != "") { path = Path.GetFullPath(Environment.ExpandEnvironmentVariables(path)); }
 
             return path;
         }

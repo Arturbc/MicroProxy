@@ -53,23 +53,19 @@ namespace MicroProxy.Helpers
             => MontarCabecalhoPacote(protocol, statusCode, headers.ToDictionary());
 
         public static string MontarCabecalhoPacote(string protocol, HttpStatusCode statusCode, Dictionary<string, StringValues> headers)
-            => MontarInicioCabecalhoPacote(protocol, statusCode) + MontarHeadersCabecalhoPacote(headers.ToDictionary());
-
-        public static string MontarInicioCabecalhoPacote(string protocol, HttpStatusCode statusCode)
-            => $"{protocol} {(int)statusCode} {statusCode}\r\n";
+            => MontarInicioCabecalhoPacote(protocol, statusCode) + MontarHeadersCabecalhoPacote(headers.ToDictionary()) + "\r\n";
 
         public static string MontarCabecalhoPacote(string protocol, string url, string method, IHeaderDictionary headers)
             => MontarCabecalhoPacote(protocol, url, method, headers.ToDictionary());
 
         public static string MontarCabecalhoPacote(string protocol, string url, string method, Dictionary<string, StringValues> headers)
-            => MontarInicioCabecalhoPacote(protocol, url, method) + MontarHeadersCabecalhoPacote(headers.ToDictionary());
+            => $"{method} {url} {protocol}\r\n" + MontarHeadersCabecalhoPacote(headers.ToDictionary()) + "\r\n";
+
+        public static string MontarInicioCabecalhoPacote(string protocol, HttpStatusCode statusCode) => $"{protocol} {(int)statusCode} {statusCode}\r\n";
 
         public static string MontarHeadersCabecalhoPacote(IHeaderDictionary headers) => MontarHeadersCabecalhoPacote(headers.ToDictionary());
 
-        public static string MontarHeadersCabecalhoPacote(Dictionary<string, StringValues> headers) => string.Join("", headers.Select(h => $"{h.Key}: {h.Value}\r\n")) + "\r\n";
-
-        public static string MontarInicioCabecalhoPacote(string protocol, string url, string method)
-            => $"{method} {url} {protocol}\r\n";
+        public static string MontarHeadersCabecalhoPacote(Dictionary<string, StringValues> headers) => string.Join("", headers.Select(h => $"{h.Key}: {h.Value}\r\n"));
 
         public static Stream Compactar(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null,
             CompressionLevel compressionLevel = CompressionLevel.Optimal) => conteudoResposta.Compactar(out _, tipoConteudo, codecConteudo, compressionLevel);
@@ -86,7 +82,6 @@ namespace MicroProxy.Helpers
         public static Stream ProcessarCompactacao<T>(this Stream stream, T compressionMode, string? tipoConteudo = null, string? codecConteudo = null)
             => ProcessarCompactacao(stream, (dynamic)compressionMode!, out string? _, tipoConteudo, codecConteudo);
 
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0066:Converter a instrução switch em expressão", Justification = "Quebra")]
         public static Stream ProcessarCompactacao<T>(this Stream stream, T compressionMode, out string? codecUsado, string? tipoConteudo = null, string? codecConteudo = null)
             where T : Enum
         {

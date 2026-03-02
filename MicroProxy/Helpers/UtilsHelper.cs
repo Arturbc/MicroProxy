@@ -46,7 +46,7 @@ namespace MicroProxy.Models
             private set { if (value != null) Sessao?.SetObjectAsJson(PATH_SITE_ORIGEM_REDIRECT, value); else Sessao?.Remove(PATH_SITE_ORIGEM_REDIRECT); }
         }
 
-        public static async Task ProcessarRequisicaoAsync(this HttpContextFromListener context, Configuracao configuracao)
+        public static async Task ProcessarRequisicaoAsync(this HttpContextFromListener context, Configuracao configuracao, Func<Task> checkAbort)
         {
             List<Task> tarefasAsync = [];
             var request = context.Request;
@@ -297,9 +297,9 @@ namespace MicroProxy.Models
 
                                                 try
                                                 {
-                                                    await serverStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho));
-                                                    if (request.Body.CanRead) { await request.Body.CopyToAsync(site.BufferReq, [serverStream, memory], context.RequestAborted); }
-                                                    if (serverStream.CanWrite) { await serverStream.FlushAsync(context.RequestAborted); }
+                                                    await serverStreamEmUso.WriteAsync(Encoding.UTF8.GetBytes(cabecalho));
+                                                    if (request.Body.CanRead) { await request.Body.CopyToAsync(site.BufferReq, [serverStreamEmUso, memory], context.RequestAborted); }
+                                                    if (serverStreamEmUso.CanWrite) { await serverStreamEmUso.FlushAsync(context.RequestAborted); }
                                                 }
                                                 catch (Exception ex) { site.Exception = ex; }
                                                 await memory.FlushAsync(context.RequestAborted);
@@ -312,7 +312,7 @@ namespace MicroProxy.Models
                                                 memory.Seek(0, SeekOrigin.Begin);
                                                 memory.SetLength(0);
 
-                                                var serverResponse = new HttpResponseFromListener(serverStream, serverStream, context, true);
+                                                var serverResponse = new HttpResponseFromListener(serverStreamEmUso, serverStream, context, true);
                                                 Dictionary<string, StringValues> headersResposta = serverResponse.Headers.ToDictionary(h => h.Key, h => h.Value)
                                                         .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
                                                         .ToDictionary();
@@ -332,7 +332,7 @@ namespace MicroProxy.Models
                                                     {
                                                         absolutePathUrlOrigemRedirect = null;
 
-                                                        try { if (response.Body.CanWrite) { await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], context.RequestAborted); } }
+                                                        try { if (response.Body.CanWrite) { await checkAbort(); await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], context.RequestAborted); } }
                                                         catch (Exception ex) { site.Exception = ex; }
 
                                                         await memory.FlushAsync(context.RequestAborted);

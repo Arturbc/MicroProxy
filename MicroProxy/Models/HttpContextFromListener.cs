@@ -302,10 +302,10 @@ namespace MicroProxy.Models
 
         private bool disposedValue;
         private int _bufferInicio;
+        private bool _checkedState = false;
         private readonly MemoryStream _buffer;
         private readonly HttpPacoteFromListener _httpPacote;
         private readonly NetworkStream _clientStream;
-        private bool _checkedState = false;
         private Stream StreamRef => CanSeek ? _buffer : BaseStream;
         public Stream BaseStream { get; }
         public override bool CanRead { get; }
@@ -329,7 +329,8 @@ namespace MicroProxy.Models
             if (_httpPacote is HttpResponseFromListener httpResponse && !httpResponse.HasStarted)
             {
                 httpResponse.GetType().GetProperty(nameof(httpResponse.HasStarted))!.SetValue(httpResponse, true);
-                return MontarCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode, httpResponse.Headers);
+                return _checkedState ? MontarHeadersCabecalhoPacote(httpResponse.Headers) + "\r\n"
+                    : MontarCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode, httpResponse.Headers);
             }
 
             return "";
@@ -339,18 +340,16 @@ namespace MicroProxy.Models
         {
             try
             {
-                if (!DataAvailable && _httpPacote is HttpResponseFromListener httpResponse)
+                if (!DataAvailable && _httpPacote is HttpResponseFromListener httpResponse && !httpResponse.HasStarted)
                 {
                     using var cts = new CancellationTokenSource(100);
-                    _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
-
                     if (!_checkedState)
                     {
                         _checkedState = true;
-                        await BaseStream.WriteAsync(Encoding.UTF8.GetBytes(MontarInicioCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode)), cts.Token);
+                        var cabecalho = MontarInicioCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode);
+                        await WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cts.Token);
                     }
-
-                    await BaseStream.WriteAsync(new byte[] { 0xFE }, cts.Token);
+                    await WriteAsync(new byte[] { 0x01 }, cts.Token);
                 }
             }
             catch (Exception ex) when (ex.Contains([typeof(IOException), typeof(OperationCanceledException), typeof(TaskCanceledException)])) { return false; }
@@ -462,6 +461,7 @@ namespace MicroProxy.Models
             _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
             await BaseStream.WriteAsync(_buffer.ToArray().AsMemory(0, (int)_buffer.Position), cts.Token);
             _buffer.Seek(0, SeekOrigin.Begin);
+            _buffer.SetLength(0);
         }
 
         protected override void Dispose(bool disposing)

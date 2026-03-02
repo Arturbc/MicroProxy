@@ -123,15 +123,15 @@ foreach (var (listener, certificado) in tcpListeners)
                     accessor.HttpContext = context;
                     url = new Uri(context.Request.GetDisplayUrl()).Authority;
                     ExibirLog($"URL de conexão solicitado: {url}");
-                    _ = Task.Run(async () =>
+                    async Task checkAborted()
                     {
                         await Task.Delay(1000, ctsAbortLink.Token);
                         while (!ctsAbortLink.IsCancellationRequested && await context.Response.Body.CheckStateAsync())
                         { await Task.Delay(200, ctsAbortLink.Token); }
                         try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { }
-                    });
+                    }
 
-                    await context.ProcessarRequisicaoAsync(configuracao);
+                    await context.ProcessarRequisicaoAsync(configuracao, checkAborted);
                 }
                 catch (Exception ex)
                 {
@@ -149,7 +149,7 @@ foreach (var (listener, certificado) in tcpListeners)
                                 e = e.InnerException;
                             }
 
-                            if (erros.Count > 0) { ExibirLog(erros, level: LogLevel.Error); }
+                            if (erros.Count > 0) { ExibirLog(erros, null, LogLevel.Error); }
                         }
                     }
                     catch { }
