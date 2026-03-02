@@ -229,15 +229,18 @@ namespace MicroProxy.Models
                             else
                             {
                                 string pathAbsolutoUrlAtual = request.Path.Value!;
+                                string pathDiretorioArquivo = "";
 
                                 if (HttpMethods.IsGet(request.Method) && Path.HasExtension(pathAbsolutoUrlAtual)
                                     && configuracao.ArquivosEstaticos != null && configuracao.ArquivosEstaticos != "")
                                 {
-                                    string pathDiretorioArquivo = ProcessarPath(configuracao.ArquivosEstaticos.ProcessarStringSubstituicao(site));
+                                    pathDiretorioArquivo = ProcessarPath(configuracao.ArquivosEstaticos.ProcessarStringSubstituicao(site));
 
-                                    site.RespBody = await response.SendFileAsync(pathDiretorioArquivo, pathAbsolutoUrlAtual.TrimStart('/'), context.RequestAborted);
+                                    try { site.RespBody = await response.SendFileAsync(pathDiretorioArquivo, pathAbsolutoUrlAtual.TrimStart('/'), context.RequestAborted); }
+                                    catch (DirectoryNotFoundException) { pathDiretorioArquivo = ""; }
                                 }
-                                else
+
+                                if (pathDiretorioArquivo == "")
                                 {
                                     using var tcpClient = new TcpClient(urlDestino.Host, urlDestino.Port)
                                     {
@@ -259,6 +262,7 @@ namespace MicroProxy.Models
                                         if (site.IgnorarCertificadoDestino) { sslClientAuth.RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true; }
                                         await serverSslStream.AuthenticateAsClientAsync(sslClientAuth, context.RequestAborted);
                                     }
+
                                     using var serverStreamEmUso = destinoHttps ? (Stream)serverSslStream : serverStream;
 
                                     try
@@ -364,7 +368,7 @@ namespace MicroProxy.Models
                                             }
                                         }
                                         await response.CompleteAsync();
-                                        await Task.WhenAny(tarefasAsync);
+                                        if (tarefasAsync.Count != 0) { await Task.WhenAny(tarefasAsync); }
                                     }
                                     catch (Exception ex)
                                     {

@@ -264,17 +264,13 @@ namespace MicroProxy.Models
 
                 using var pfp = new PhysicalFileProvider(pathDiretorio);
                 var arquivo = pfp.GetFileInfo(pathArquivoUsado);
+                var provedor = new FileExtensionContentTypeProvider();
+                if (provedor.TryGetContentType(pathArquivo, out string? tipoConteudo)) { ContentType = tipoConteudo; }
+                await using var conteudoResposta = arquivo.CreateReadStream();
+                await SendFileAsync(arquivo, cancellationToken);
+                var resultado = await conteudoResposta.BodyAsStringAsync(tipoConteudo, Headers.ContentEncoding, cancellationToken);
 
-                if (arquivo.Exists)
-                {
-                    var provedor = new FileExtensionContentTypeProvider();
-                    if (provedor.TryGetContentType(pathArquivo, out string? tipoConteudo)) { ContentType = tipoConteudo; }
-                    await using var conteudoResposta = arquivo.CreateReadStream();
-                    await SendFileAsync(arquivo, cancellationToken);
-                    var resultado = await conteudoResposta.BodyAsStringAsync(tipoConteudo, Headers.ContentEncoding, cancellationToken);
-
-                    return resultado;
-                }
+                return resultado;
             }
 
             return null;
@@ -283,7 +279,8 @@ namespace MicroProxy.Models
         public async Task CompleteAsync()
         {
             var cabecalho = Body.MontarCabecalho();
-            if (!string.IsNullOrEmpty(cabecalho)) { await Body.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), default); }
+            HasStarted = true;
+            if (!string.IsNullOrEmpty(cabecalho)) { await Body.BaseStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), default); }
             await Body.FlushAsync(HttpContext.RequestAborted);
         }
     }
