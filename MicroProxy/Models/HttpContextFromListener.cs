@@ -1,7 +1,9 @@
 ﻿using MicroProxy.Extensions;
+using MicroProxy.Helpers;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -38,9 +40,11 @@ namespace MicroProxy.Models
     public class HttpContextFromListener : IDisposable
     {
         public HttpContextFromListener(Stream stream, NetworkStream clientStream, CancellationToken cancellationToken = default)
+            : this(stream, clientStream, null, cancellationToken) { }
+        public HttpContextFromListener(Stream stream, NetworkStream clientStream, string? codec, CancellationToken cancellationToken = default)
         {
             Request = new(stream, clientStream, this);
-            Response = new(stream, clientStream, this);
+            Response = new(stream, clientStream, this, codec);
             Connection = new(clientStream.Socket,
                 stream is SslStream ssl && ssl.RemoteCertificate != null ? new X509Certificate2(ssl.RemoteCertificate) : null);
             RequestAborted = cancellationToken;
@@ -152,24 +156,28 @@ namespace MicroProxy.Models
 
     public class HttpResponseFromListener : HttpPacoteFromListener
     {
-        internal HttpResponseFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context, bool clonarContext = false) : base(context)
+        internal HttpResponseFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context, bool clonarContext = false)
+            : this(stream, clientStream, context, null, clonarContext) { }
+        internal HttpResponseFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context, string? codec, bool clonarContext = false) : base(context)
         {
             if (clonarContext)
             {
-                using var body = new BodyStream(stream, clientStream, this, true, !HttpMethods.IsHead(HttpContext.Request.Method));
+                using var body = new BodyStream(stream, clientStream, this, true, !HttpMethods.IsHead(context.Request.Method));
                 Timeout = context.Response.Timeout;
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(100).Token, context.RequestAborted);
                 string[] resp = LerCabecalhoPacote(body, Headers, cts.Token);
                 StatusCode = int.Parse(resp[1]);
-                Body = body.AtualizarBody(true, !HttpMethods.IsHead(HttpContext.Request.Method));
+                Body = body.AtualizarBody(true, !HttpMethods.IsHead(context.Request.Method));
+                _codec = codec ?? Headers.ContentEncoding.ToString() ?? context.Response._codec;
             }
             else
             {
                 Body = new(stream, clientStream, this, false, !HttpMethods.IsHead(HttpContext.Request.Method));
                 StatusCode = (int)HttpStatusCode.OK;
+                _codec = codec;
             }
         }
-
+        private readonly string? _codec;
         public int StatusCode { get; set; }
         public bool HasStarted { get; protected set; }
         public StringValues ContentType { get => Headers.ContentType; set => Headers.ContentType = value; }
@@ -181,32 +189,89 @@ namespace MicroProxy.Models
             StatusCode = (int)(permanent ? HttpStatusCode.PermanentRedirect : HttpStatusCode.Redirect);
         }
 
-        public async Task WriteAsync(string entrada, CancellationToken cancellationToken) => await Body.WriteAsync(Encoding.UTF8.GetBytes(entrada), cancellationToken);
+        public async Task WriteAsync(string entrada, CancellationToken cancellationToken)
+        {
+            var buffer = Encoding.UTF8.GetBytes(entrada);
+
+            if (Headers.ContentEncoding.Count == 0)
+            {
+                using var memoria = new MemoryStream(buffer);
+                using var pacote = (MemoryStream)ProcessarCodificacao(memoria);
+                buffer = pacote.ToArray();
+            }
+
+            if (Headers.ContentLength == null) { Headers.ContentLength = buffer.Length; }
+            await Body.WriteAsync(buffer, cancellationToken);
+        }
+
+        private Stream ProcessarCodificacao(Stream stream)
+        {
+            var partesCodec = _codec?.Split(',', StringSplitOptions.TrimEntries);
+            var acceptedEncodings = HttpContext.Request.Headers.AcceptEncoding.ToString();
+
+            if (partesCodec != null && partesCodec.Length > 0 && acceptedEncodings.Contains(partesCodec[0], StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    stream = stream.Compactar(out var codec, ContentType, partesCodec[0], (CompressionLevel)(partesCodec.Length > 1 ? int.Parse(partesCodec[1]) : 0));
+                    Headers.ContentEncoding = codec;
+                }
+                catch { }
+            }
+
+            return stream;
+        }
 
         public async Task SendFileAsync(IFileInfo fileInfo, CancellationToken cancellationToken)
         {
-            using var stream = fileInfo.CreateReadStream();
+            var stream = fileInfo.CreateReadStream();
 
-            await stream.CopyToAsync(Body, cancellationToken);
+            if (Headers.ContentEncoding.Count == 0)
+            {
+                stream = ProcessarCodificacao(stream);
+            }
+            using var streamEmUso = stream;
+            ContentLength = streamEmUso.Length;
+            await streamEmUso.CopyToAsync(Body, cancellationToken);
         }
 
         public async Task<string?> SendFileAsync(string? pathDiretorio, string? pathArquivo, CancellationToken cancellationToken = default)
         {
-            if (pathDiretorio != null && pathDiretorio != "" && pathArquivo != null && pathArquivo != "")
+            if (!string.IsNullOrEmpty(pathDiretorio) && !string.IsNullOrEmpty(pathArquivo))
             {
-                var arquivo = new PhysicalFileProvider(pathDiretorio).GetFileInfo(pathArquivo);
+                var pathArquivoUsado = pathArquivo;
+                var partesCodec = _codec?.Split(',', StringSplitOptions.TrimEntries);
+                var acceptedEncodings = HttpContext.Request.Headers.AcceptEncoding.ToString();
+
+                if (partesCodec != null && partesCodec.Length > 0 && acceptedEncodings.Contains(partesCodec[0], StringComparison.OrdinalIgnoreCase))
+                {
+                    var pathArquivoCod = Directory.GetFiles(pathDiretorio, pathArquivo + ".*", SearchOption.TopDirectoryOnly)
+                        .FirstOrDefault(a => partesCodec[0].StartsWith(Path.GetExtension(a).TrimStart('.'), StringComparison.OrdinalIgnoreCase));
+
+                    if (pathArquivoCod != null)
+                    {
+                        var codec = acceptedEncodings.Split(',', StringSplitOptions.TrimEntries)
+                            .FirstOrDefault(s => s.Contains(partesCodec[0], StringComparison.OrdinalIgnoreCase));
+
+                        if (codec != null)
+                        {
+                            pathArquivoUsado = Path.GetFileName(pathArquivoCod);
+                            Headers.ContentEncoding = acceptedEncodings.Split(',', StringSplitOptions.TrimEntries)
+                                .FirstOrDefault(s => s.Contains(partesCodec[0], StringComparison.OrdinalIgnoreCase));
+                        }
+                    }
+                }
+
+                using var pfp = new PhysicalFileProvider(pathDiretorio);
+                var arquivo = pfp.GetFileInfo(pathArquivoUsado);
 
                 if (arquivo.Exists)
                 {
                     var provedor = new FileExtensionContentTypeProvider();
-                    await using var conteudoResposta = arquivo.CreateReadStream();
-
-                    ContentLength = arquivo.Length;
-
                     if (provedor.TryGetContentType(pathArquivo, out string? tipoConteudo)) { ContentType = tipoConteudo; }
-
+                    await using var conteudoResposta = arquivo.CreateReadStream();
                     await SendFileAsync(arquivo, cancellationToken);
-                    var resultado = await conteudoResposta.BodyAsStringAsync(tipoConteudo, cancellationToken: cancellationToken);
+                    var resultado = await conteudoResposta.BodyAsStringAsync(tipoConteudo, Headers.ContentEncoding, cancellationToken);
 
                     return resultado;
                 }

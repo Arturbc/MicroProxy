@@ -72,12 +72,22 @@ namespace MicroProxy.Helpers
             => $"{method} {url} {protocol}\r\n";
 
         public static Stream Compactar(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null,
-            CompressionLevel compressionLevel = CompressionLevel.Optimal) => conteudoResposta.ProcessarCompactacao(compressionLevel, tipoConteudo, codecConteudo);
+            CompressionLevel compressionLevel = CompressionLevel.Optimal) => conteudoResposta.Compactar(out _, tipoConteudo, codecConteudo, compressionLevel);
+
+        public static Stream Compactar(this Stream conteudoResposta, out string? codecUsado, string? tipoConteudo = null, string? codecConteudo = null,
+            CompressionLevel compressionLevel = CompressionLevel.Optimal) => conteudoResposta.ProcessarCompactacao(compressionLevel, out codecUsado, tipoConteudo, codecConteudo);
 
         public static Stream Extrair(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null)
-            => conteudoResposta.ProcessarCompactacao(CompressionMode.Decompress, tipoConteudo, codecConteudo);
+            => conteudoResposta.Extrair(out _, tipoConteudo, codecConteudo);
+
+        public static Stream Extrair(this Stream conteudoResposta, out string? codecUsado, string? tipoConteudo = null, string? codecConteudo = null)
+            => conteudoResposta.ProcessarCompactacao(CompressionMode.Decompress, out codecUsado, tipoConteudo, codecConteudo);
 
         public static Stream ProcessarCompactacao<T>(this Stream stream, T compressionMode, string? tipoConteudo = null, string? codecConteudo = null)
+            => ProcessarCompactacao(stream, (dynamic)compressionMode!, out string? _, tipoConteudo, codecConteudo);
+
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0066:Converter a instrução switch em expressão", Justification = "Quebra")]
+        public static Stream ProcessarCompactacao<T>(this Stream stream, T compressionMode, out string? codecUsado, string? tipoConteudo = null, string? codecConteudo = null)
             where T : Enum
         {
             if (compressionMode is not CompressionLevel && compressionMode is not CompressionMode) { throw new ArgumentException("Argumento inválido", nameof(compressionMode)); }
@@ -90,13 +100,34 @@ namespace MicroProxy.Helpers
 
                 if (codecConteudo != null)
                 {
-                    if (codecConteudo.Equals("br", StringComparison.OrdinalIgnoreCase)) { codecConteudo = "Brotli"; }
-                    var tipo = Type.GetType($"{codecConteudo}Stream", true, true)!;
-                    dynamic conteudoProc = Activator.CreateInstance(tipo, [stream, compressionMode])!;
+                    dynamic cm = compressionMode;
+                    Stream pacote = stream;
+                    var comprimir = compressionMode is CompressionLevel;
+                    var memoria = new MemoryStream();
+                    var streamUsado = comprimir ? memoria : stream;
 
-                    return conteudoProc;
+                    switch (codecConteudo.ToLower())
+                    {
+                        case "brotli" or "br": pacote = new BrotliStream(streamUsado, cm); break;
+                        case "gzip" or "g" or "gz": pacote = new GZipStream(streamUsado, cm); break;
+                        case "deflate" or "d": pacote = new DeflateStream(streamUsado, cm); break;
+                        case "zlib" or "z" or "zl" or "zstd": pacote = new ZLibStream(streamUsado, cm); break;
+                    }
+
+                    codecUsado = pacote.GetType().Name[..^"Stream".Length];
+
+                    if (pacote != stream)
+                    {
+                        if (comprimir) { stream.CopyTo(pacote); } else { pacote.CopyTo(memoria); }
+                        pacote.Flush(); memoria.Seek(0, SeekOrigin.Begin);
+                    }
+                    else { memoria.Dispose(); return stream; }
+
+                    return memoria;
                 }
             }
+
+            codecUsado = null;
 
             return stream;
         }

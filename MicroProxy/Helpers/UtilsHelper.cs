@@ -328,11 +328,7 @@ namespace MicroProxy.Models
                                                     {
                                                         absolutePathUrlOrigemRedirect = null;
 
-                                                        try
-                                                        {
-                                                            if (response.Body.CanWrite)
-                                                            { await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], context.RequestAborted); }
-                                                        }
+                                                        try { if (response.Body.CanWrite) { await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], context.RequestAborted); } }
                                                         catch (Exception ex) { site.Exception = ex; }
 
                                                         await memory.FlushAsync(context.RequestAborted);
@@ -370,7 +366,11 @@ namespace MicroProxy.Models
                                         await response.CompleteAsync();
                                         await Task.WhenAny(tarefasAsync);
                                     }
-                                    catch { response.StatusCode = StatusCodes.Status502BadGateway; }
+                                    catch (Exception ex)
+                                    {
+                                        response.StatusCode = StatusCodes.Status502BadGateway;
+                                        throw new Exception(null, ex);
+                                    }
                                 }
                             }
                         }
@@ -387,7 +387,7 @@ namespace MicroProxy.Models
 
                 if (!response.HasStarted)
                 {
-                    response.StatusCode = StatusCodes.Status500InternalServerError;
+                    if (response.StatusCode < StatusCodes.Status500InternalServerError) { response.StatusCode = StatusCodes.Status500InternalServerError; }
 
                     if (configuracao.TratamentoErroInterno != null && configuracao.TratamentoErroInterno != "")
                     {

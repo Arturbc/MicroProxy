@@ -117,7 +117,7 @@ foreach (var (listener, certificado) in tcpListeners)
                     using var ctsAbort = new CancellationTokenSource();
                     using var ctsAbortLink = CancellationTokenSource.CreateLinkedTokenSource(app.Lifetime.ApplicationStopping, ctsAbort.Token);
                     using var scope = app.Services.CreateScope();
-                    using HttpContextFromListener context = new(streamEmUso, clientStreamTask, ctsAbortLink.Token);
+                    using HttpContextFromListener context = new(streamEmUso, clientStreamTask, configuracao.CompressionResponse, ctsAbortLink.Token);
                     httpContextStarted = true;
                     var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();
                     accessor.HttpContext = context;
