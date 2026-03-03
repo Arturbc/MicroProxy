@@ -332,7 +332,15 @@ namespace MicroProxy.Models
                                                     {
                                                         absolutePathUrlOrigemRedirect = null;
 
-                                                        try { if (response.Body.CanWrite) { await checkAbort(); await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], context.RequestAborted); } }
+                                                        try
+                                                        {
+                                                            if (response.Body.CanWrite)
+                                                            {
+                                                                var tarefaCheck = checkAbort();
+                                                                await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], context.RequestAborted);
+                                                                tarefaCheck.Dispose();
+                                                            }
+                                                        }
                                                         catch (Exception ex) { site.Exception = ex; }
 
                                                         await memory.FlushAsync(context.RequestAborted);

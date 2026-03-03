@@ -302,7 +302,6 @@ namespace MicroProxy.Models
 
         private bool disposedValue;
         private int _bufferInicio;
-        private bool _checkedState = false;
         private readonly MemoryStream _buffer;
         private readonly HttpPacoteFromListener _httpPacote;
         private readonly NetworkStream _clientStream;
@@ -329,8 +328,7 @@ namespace MicroProxy.Models
             if (_httpPacote is HttpResponseFromListener httpResponse && !httpResponse.HasStarted)
             {
                 httpResponse.GetType().GetProperty(nameof(httpResponse.HasStarted))!.SetValue(httpResponse, true);
-                return _checkedState ? MontarHeadersCabecalhoPacote(httpResponse.Headers) + "\r\n"
-                    : MontarCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode, httpResponse.Headers);
+                return MontarCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode, httpResponse.Headers);
             }
 
             return "";
@@ -343,13 +341,7 @@ namespace MicroProxy.Models
                 if (!DataAvailable && _httpPacote is HttpResponseFromListener httpResponse && !httpResponse.HasStarted)
                 {
                     using var cts = new CancellationTokenSource(100);
-                    if (!_checkedState)
-                    {
-                        _checkedState = true;
-                        var cabecalho = MontarInicioCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode);
-                        await WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cts.Token);
-                    }
-                    await WriteAsync(new byte[] { 0x01 }, cts.Token);
+                    if (_clientStream.Socket.Poll(1000, SelectMode.SelectRead) && _clientStream.Socket.Available == 0) { return false; }
                 }
             }
             catch (Exception ex) when (ex.Contains([typeof(IOException), typeof(OperationCanceledException), typeof(TaskCanceledException)])) { return false; }
@@ -417,7 +409,7 @@ namespace MicroProxy.Models
                         {
                             bufferNovo = true;
                             cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,
-                                new CancellationTokenSource(_buffer.Length == 0 ? _httpPacote.Timeout * 1000 : 200).Token);
+                                new CancellationTokenSource(_buffer.Capacity == 0 ? _httpPacote.Timeout * 1000 : 200).Token);
                             await Task.Delay(1, cts.Token);
                             continue;
                         }
