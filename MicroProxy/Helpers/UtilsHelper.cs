@@ -237,23 +237,22 @@ namespace MicroProxy.Models
                                     pathDiretorioArquivo = ProcessarPath(configuracao.ArquivosEstaticos.ProcessarStringSubstituicao(site));
 
                                     try { site.RespBody = await response.SendFileAsync(pathDiretorioArquivo, pathAbsolutoUrlAtual.TrimStart('/'), context.RequestAborted); }
-                                    catch (DirectoryNotFoundException) { pathDiretorioArquivo = ""; }
+                                    catch (Exception ex) when (ex.Contains([typeof(DirectoryNotFoundException), typeof(FileNotFoundException)])) { pathDiretorioArquivo = ""; }
                                 }
 
                                 if (pathDiretorioArquivo == "")
                                 {
-                                    using var tcpClient = new TcpClient(urlDestino.Host, urlDestino.Port)
-                                    {
-                                        NoDelay = site.SemDelay,
-                                        ReceiveTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds,
-                                        SendTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds
-                                    };
+                                    var tcpClient = await ConnectionPool.GetConnectionAsync(urlDestino.Host, urlDestino.Port, context.RequestAborted);
+                                    tcpClient.NoDelay = site.SemDelay;
+                                    tcpClient.ReceiveTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds;
+                                    tcpClient.SendTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds;
                                     if (site.BufferReq > 0) { tcpClient.ReceiveBufferSize = site.BufferReq; }
                                     if (site.BufferResp > 0) { tcpClient.SendBufferSize = site.BufferResp; }
-                                    await using var serverStream = tcpClient.GetStream();
-                                    using var serverSslStream = new SslStream(serverStream);
+                                    var serverStream = tcpClient.GetStream();
+                                    var serverSslStream = new SslStream(serverStream);
                                     using var memory = new MemoryStream();
                                     var destinoHttps = urlDestino.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase);
+                                    var serverStreamEmUso = destinoHttps ? (Stream)serverSslStream : serverStream;
 
                                     if (destinoHttps)
                                     {
@@ -262,8 +261,6 @@ namespace MicroProxy.Models
                                         if (site.IgnorarCertificadoDestino) { sslClientAuth.RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true; }
                                         await serverSslStream.AuthenticateAsClientAsync(sslClientAuth, context.RequestAborted);
                                     }
-
-                                    using var serverStreamEmUso = destinoHttps ? (Stream)serverSslStream : serverStream;
 
                                     try
                                     {

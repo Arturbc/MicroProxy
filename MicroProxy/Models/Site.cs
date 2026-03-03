@@ -100,13 +100,17 @@ namespace MicroProxy.Models
         {
             get
             {
-                var excecao = Exception;
-                var mensagem = excecao?.Message;
+                if (Exception == null) { return null; }
 
-                while (excecao?.InnerException != null)
+                var excecao = Exception;
+                var mensagem = $"[{excecao.GetType().Name}] " + excecao.Message +
+                    Environment.NewLine + excecao.StackTrace;
+
+                while (excecao.InnerException != null)
                 {
-                    mensagem += Environment.NewLine + excecao.InnerException.Message;
-                    excecao = excecao?.InnerException;
+                    excecao = excecao.InnerException;
+                    mensagem += Environment.NewLine + $"[{excecao.GetType().Name}] " + excecao.Message +
+                        Environment.NewLine + excecao.StackTrace;
                 }
 
                 return mensagem;

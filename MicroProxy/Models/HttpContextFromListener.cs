@@ -339,12 +339,9 @@ namespace MicroProxy.Models
             try
             {
                 if (!DataAvailable && _httpPacote is HttpResponseFromListener httpResponse && !httpResponse.HasStarted)
-                {
-                    using var cts = new CancellationTokenSource(100);
-                    if (_clientStream.Socket.Poll(1000, SelectMode.SelectRead) && _clientStream.Socket.Available == 0) { return false; }
-                }
+                { return !(_clientStream.Socket.Poll(1000, SelectMode.SelectRead) && _clientStream.Socket.Available == 0); }
             }
-            catch (Exception ex) when (ex.Contains([typeof(IOException), typeof(OperationCanceledException), typeof(TaskCanceledException)])) { return false; }
+            catch { return false; }
             return true;
         }
 
