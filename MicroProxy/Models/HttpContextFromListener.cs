@@ -278,10 +278,14 @@ namespace MicroProxy.Models
 
         public async Task CompleteAsync()
         {
-            var cabecalho = Body.MontarCabecalho();
-            HasStarted = true;
-            if (!string.IsNullOrEmpty(cabecalho)) { await Body.BaseStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), default); }
-            await Body.FlushAsync(HttpContext.RequestAborted);
+            try
+            {
+                var cabecalho = Body.MontarCabecalho();
+                HasStarted = true;
+                if (!string.IsNullOrEmpty(cabecalho)) { await Body.BaseStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), HttpContext.RequestAborted); }
+                await Body.FlushAsync(HttpContext.RequestAborted);
+            }
+            catch { }
         }
     }
 
@@ -417,8 +421,10 @@ namespace MicroProxy.Models
                     cts = null;
                 } while (loopAtivo);
             }
-            catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)])) { cts?.Dispose(); }
+            catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)])) { }
 
+            if ((cts?.Token ?? cancellationToken).IsCancellationRequested) { _clientStream.Close(); }
+            cts?.Dispose();
             var fimBuffer = totalRead + offset;
             _buffer.Seek(posicaoAtualBuffer, SeekOrigin.Begin);
             Array.Copy(internalBuffer, buffer, fimBuffer);
@@ -443,14 +449,18 @@ namespace MicroProxy.Models
 
         public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
-            var cabecalho = MontarCabecalho();
-            if (!string.IsNullOrEmpty(cabecalho)) { await _buffer.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cancellationToken); }
-            await _buffer.WriteAsync(buffer.AsMemory(offset, count), cancellationToken);
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(200).Token);
-            _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
-            await BaseStream.WriteAsync(_buffer.ToArray().AsMemory(0, (int)_buffer.Position), cts.Token);
-            _buffer.Seek(0, SeekOrigin.Begin);
-            _buffer.SetLength(0);
+            try
+            {
+                var cabecalho = MontarCabecalho();
+                if (!string.IsNullOrEmpty(cabecalho)) { await _buffer.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cancellationToken); }
+                await _buffer.WriteAsync(buffer.AsMemory(offset, count), cancellationToken);
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(200).Token);
+                _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
+                await BaseStream.WriteAsync(_buffer.ToArray().AsMemory(0, (int)_buffer.Position), cts.Token);
+                _buffer.Seek(0, SeekOrigin.Begin);
+                _buffer.SetLength(0);
+            }
+            catch { _clientStream.Close(); }
         }
 
         protected override void Dispose(bool disposing)

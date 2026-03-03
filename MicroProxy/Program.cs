@@ -157,7 +157,6 @@ foreach (var (listener, certificado) in tcpListeners)
 
                 ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {--tarefas})");
                 ExibirLog($"URL de conexão desconectada: {url}");
-                await clientStreamTask.Socket.DisconnectAsync(false, app.Lifetime.ApplicationStopping);
                 clientStreamTask.Socket.Close();
             });
         }
