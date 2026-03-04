@@ -327,15 +327,13 @@ namespace MicroProxy.Models
 
                                                     if (response.Headers.Location.Count == 0)
                                                     {
+                                                        using var tarefaCheck = checkAbort();
                                                         absolutePathUrlOrigemRedirect = null;
 
                                                         try
                                                         {
                                                             if (response.Body.CanWrite)
-                                                            {
-                                                                using var tarefaCheck = checkAbort();
-                                                                await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], context.RequestAborted);
-                                                            }
+                                                            { await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], context.RequestAborted); }
                                                         }
                                                         catch (Exception ex) { site.Exception = ex; }
 

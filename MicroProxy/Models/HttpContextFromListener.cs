@@ -381,12 +381,9 @@ namespace MicroProxy.Models
                         _buffer.Seek(_buffer.Length, SeekOrigin.Begin);
                         try
                         {
-                            if (!_clientStream.Socket.Poll(0, SelectMode.SelectRead) || _clientStream.DataAvailable)
-                            {
-                                using var ctsRead = new CancellationTokenSource(200);
-                                using var ctsReadLink = CancellationTokenSource.CreateLinkedTokenSource(ctsRead.Token, ct);
-                                read = await BaseStream.ReadAsync(parteBuffer, ctsReadLink.Token);
-                            }
+                            using var ctsLink = CancellationTokenSource.CreateLinkedTokenSource(ct, new CancellationTokenSource(200).Token);
+                            _clientStream.Socket.Poll(0, SelectMode.SelectRead);
+                            read = await BaseStream.ReadAsync(parteBuffer, ctsLink.Token);
                             if (read != 0) { await _buffer.WriteAsync(parteBuffer[..read], cancellationToken); posicaoAtualBuffer += read; }
                         }
                         catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)]))
@@ -396,14 +393,13 @@ namespace MicroProxy.Models
                     totalRead += read;
                     loopAtivo = totalRead < count && (totalRead == 0 || read > 0) && (bufferNovo || _buffer.Position < _buffer.Length);
 
-                    if (read == 0)
+                    if (totalRead == 0)
                     {
-                        if (_clientStream.Socket.Connected)
+                        if (_clientStream.Socket.Connected && _httpPacote.Headers.ContentType.ToString().EndsWith("stream", StringComparison.OrdinalIgnoreCase)
+                            && (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable))
                         {
                             bufferNovo = true;
-                            cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,
-                                new CancellationTokenSource(_buffer.Capacity == 0 || _httpPacote.Headers.ContentType.ToString().EndsWith("stream", StringComparison.OrdinalIgnoreCase)
-                                    ? _httpPacote.Timeout * 1000 : 200).Token);
+                            cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(_httpPacote.Timeout * 1000).Token);
                             await Task.Delay(1, cts.Token);
                             continue;
                         }
