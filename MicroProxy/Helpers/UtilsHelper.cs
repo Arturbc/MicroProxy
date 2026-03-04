@@ -339,7 +339,7 @@ namespace MicroProxy.Models
                                                         }
                                                         catch (Exception ex) { site.Exception = ex; }
 
-                                                        await serverResponse.CompleteAsync();
+                                                        await serverResponse.CompleteAsync(tcpClient);
                                                         await memory.FlushAsync();
                                                         memory.Seek(0, SeekOrigin.Begin);
                                                         using StreamReader readerResp = new(memory);
@@ -372,7 +372,7 @@ namespace MicroProxy.Models
                                                 }
                                             }
                                         }
-                                        await response.CompleteAsync();
+                                        await response.CompleteAsync(tcpClient);
                                         if (tarefasAsync.Count != 0) { await Task.WhenAny(tarefasAsync); }
                                     }
                                     catch (Exception ex)

@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Net;
 using System.Net.Sockets;
 
 namespace MicroProxy.Models
@@ -9,16 +10,26 @@ namespace MicroProxy.Models
 
         public static async Task<TcpClient> GetConnectionAsync(string host, int port, CancellationToken cancel = default)
         {
-            var conexao = $"{host}:{port}";
+            var ip = await Dns.GetHostAddressesAsync(host, cancel);
+            var conexao = $"{ip}:{port}";
             var pool = _pools.GetOrAdd(conexao, _ => new ConcurrentQueue<TcpClient>());
-            if (pool.TryDequeue(out var tcp) && tcp.Connected && IsAlive(tcp)) { pool.Enqueue(tcp); return tcp; }
+            if (pool.TryDequeue(out var tcp) && tcp.Connected && IsAlive(tcp)) { return tcp; }
 
             using var cts = new CancellationTokenSource(25000);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancel, cts.Token);
             var tcpNew = new TcpClient();
             await tcpNew.ConnectAsync(host, port, linked.Token);
-            pool.Enqueue(tcpNew);
             return tcpNew;
+        }
+
+        public static void SaveConnection(TcpClient tcp)
+        {
+            if (tcp.Client.RemoteEndPoint is not IPEndPoint ip) { return; }
+
+            var conexao = $"{ip.Address}:{ip.Port}";
+            var pool = _pools.GetOrAdd(conexao, _ => new ConcurrentQueue<TcpClient>());
+
+            if (!pool.Contains(tcp)) { pool.Enqueue(tcp); }
         }
 
         static bool IsAlive(TcpClient tcp)

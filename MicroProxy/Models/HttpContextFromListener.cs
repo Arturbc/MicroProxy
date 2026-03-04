@@ -278,7 +278,7 @@ namespace MicroProxy.Models
             return null;
         }
 
-        public async Task CompleteAsync()
+        public async Task CompleteAsync(TcpClient? tcpClient = null)
         {
             try
             {
@@ -289,7 +289,8 @@ namespace MicroProxy.Models
             }
             catch { }
 
-            if (HttpContext.RequestAborted.IsCancellationRequested || (_clientStream.Socket.Poll(1000, SelectMode.SelectRead) && _clientStream.DataAvailable)) { _clientStream.Close(); }
+            if (HttpContext.RequestAborted.IsCancellationRequested || !_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable) { _clientStream.Close(); }
+            else if (tcpClient != null) { ConnectionPool.SaveConnection(tcpClient); }
         }
     }
 
@@ -401,8 +402,8 @@ namespace MicroProxy.Models
                         {
                             bufferNovo = true;
                             cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,
-                                new CancellationTokenSource(_buffer.Capacity == 0 ? _httpPacote.Timeout * 1000
-                                : _httpPacote.Headers.ContentType.ToString().EndsWith("stream", StringComparison.OrdinalIgnoreCase) ? 5000 : 200).Token);
+                                new CancellationTokenSource(_buffer.Capacity == 0 || _httpPacote.Headers.ContentType.ToString().EndsWith("stream", StringComparison.OrdinalIgnoreCase)
+                                    ? _httpPacote.Timeout * 1000 : 200).Token);
                             await Task.Delay(1, cts.Token);
                             continue;
                         }
