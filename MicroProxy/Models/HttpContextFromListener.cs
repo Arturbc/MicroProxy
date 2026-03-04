@@ -381,7 +381,7 @@ namespace MicroProxy.Models
                         _buffer.Seek(_buffer.Length, SeekOrigin.Begin);
                         try
                         {
-                            using var ctsLink = CancellationTokenSource.CreateLinkedTokenSource(ct, new CancellationTokenSource(200).Token);
+                            using var ctsLink = CancellationTokenSource.CreateLinkedTokenSource(ct, new CancellationTokenSource(10).Token);
                             _clientStream.Socket.Poll(0, SelectMode.SelectRead);
                             read = await BaseStream.ReadAsync(parteBuffer, ctsLink.Token);
                             if (read != 0) { await _buffer.WriteAsync(parteBuffer[..read], cancellationToken); posicaoAtualBuffer += read; }
