@@ -414,7 +414,7 @@ namespace MicroProxy.Models
                         {
                             bufferNovo = true;
                             cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken,
-                                new CancellationTokenSource(_buffer.Capacity == 0 ? _httpPacote.Timeout * 1000 : 200).Token);
+                                new CancellationTokenSource(_buffer.Capacity == 0 ? _httpPacote.Timeout * 1000 : 5000).Token);
                             await Task.Delay(1, cts.Token);
                             continue;
                         }
