@@ -299,7 +299,7 @@ namespace MicroProxy.Models
                                                     if (serverStreamEmUso.CanWrite) { await serverStreamEmUso.FlushAsync(context.RequestAborted); }
                                                 }
                                                 catch (Exception ex) { site.Exception = ex; }
-                                                await memory.FlushAsync(context.RequestAborted);
+                                                await memory.FlushAsync();
                                                 memory.Seek(0, SeekOrigin.Begin);
                                                 using StreamReader readerReq = new(memory);
                                                 site.ReqBody = await readerReq.ReadToEndAsync();
@@ -333,14 +333,14 @@ namespace MicroProxy.Models
                                                         {
                                                             if (response.Body.CanWrite)
                                                             {
-                                                                var tarefaCheck = checkAbort();
+                                                                using var tarefaCheck = checkAbort();
                                                                 await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], context.RequestAborted);
-                                                                tarefaCheck.Dispose();
                                                             }
                                                         }
                                                         catch (Exception ex) { site.Exception = ex; }
 
-                                                        await memory.FlushAsync(context.RequestAborted);
+                                                        await serverResponse.CompleteAsync();
+                                                        await memory.FlushAsync();
                                                         memory.Seek(0, SeekOrigin.Begin);
                                                         using StreamReader readerResp = new(memory);
                                                         site.RespBody = await readerResp.ReadToEndAsync();

@@ -160,6 +160,7 @@ namespace MicroProxy.Models
             : this(stream, clientStream, context, null, clonarContext) { }
         internal HttpResponseFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context, string? codec, bool clonarContext = false) : base(context)
         {
+            _clientStream = clientStream;
             if (clonarContext)
             {
                 using var body = new BodyStream(stream, clientStream, this, true, !HttpMethods.IsHead(context.Request.Method));
@@ -178,6 +179,7 @@ namespace MicroProxy.Models
             }
         }
         private readonly string? _codec;
+        private readonly NetworkStream _clientStream;
         public int StatusCode { get; set; }
         public bool HasStarted { get; protected set; }
         public StringValues ContentType { get => Headers.ContentType; set => Headers.ContentType = value; }
@@ -286,6 +288,8 @@ namespace MicroProxy.Models
                 await Body.FlushAsync(HttpContext.RequestAborted);
             }
             catch { }
+
+            if (_clientStream.Socket.Poll(1000, SelectMode.SelectRead) && _clientStream.DataAvailable) { _clientStream.Close(); }
         }
     }
 
@@ -343,7 +347,7 @@ namespace MicroProxy.Models
             try
             {
                 if (!DataAvailable && _httpPacote is HttpResponseFromListener httpResponse && !httpResponse.HasStarted)
-                { return !(_clientStream.Socket.Poll(1000, SelectMode.SelectRead) && _clientStream.Socket.Available == 0); }
+                { return !(_clientStream.Socket.Poll(1000, SelectMode.SelectRead) && _clientStream.DataAvailable); }
             }
             catch { return false; }
             return true;
@@ -421,9 +425,13 @@ namespace MicroProxy.Models
                     cts = null;
                 } while (loopAtivo);
             }
-            catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)])) { }
+            catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)]))
+            {
+                if (cts == null) { throw new("Tarefa cancelada", ex); }
+                else if (cts.IsCancellationRequested && _buffer.Capacity == 0)
+                { cts.Dispose(); throw new TimeoutException("O tempo máximo de espera foi atingido!"); }
+            }
 
-            if ((cts?.Token ?? cancellationToken).IsCancellationRequested) { _clientStream.Close(); }
             cts?.Dispose();
             var fimBuffer = totalRead + offset;
             _buffer.Seek(posicaoAtualBuffer, SeekOrigin.Begin);
@@ -449,18 +457,14 @@ namespace MicroProxy.Models
 
         public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
-            try
-            {
-                var cabecalho = MontarCabecalho();
-                if (!string.IsNullOrEmpty(cabecalho)) { await _buffer.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cancellationToken); }
-                await _buffer.WriteAsync(buffer.AsMemory(offset, count), cancellationToken);
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(200).Token);
-                _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
-                await BaseStream.WriteAsync(_buffer.ToArray().AsMemory(0, (int)_buffer.Position), cts.Token);
-                _buffer.Seek(0, SeekOrigin.Begin);
-                _buffer.SetLength(0);
-            }
-            catch { _clientStream.Close(); }
+            var cabecalho = MontarCabecalho();
+            if (!string.IsNullOrEmpty(cabecalho)) { await _buffer.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cancellationToken); }
+            await _buffer.WriteAsync(buffer.AsMemory(offset, count), cancellationToken);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(200).Token);
+            _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
+            await BaseStream.WriteAsync(_buffer.ToArray().AsMemory(0, (int)_buffer.Position), cts.Token);
+            _buffer.Seek(0, SeekOrigin.Begin);
+            _buffer.SetLength(0);
         }
 
         protected override void Dispose(bool disposing)
