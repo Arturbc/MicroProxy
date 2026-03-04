@@ -27,7 +27,7 @@ namespace MicroProxy.Models
             {
                 var socket = tcp.Client;
                 if (!socket.Connected) { return false; }
-                return !(socket.Poll(1000, SelectMode.SelectRead) && socket.Available == 0);
+                return !socket.Poll(1000, SelectMode.SelectRead) || socket.Available != 0;
             }
             catch
             {
