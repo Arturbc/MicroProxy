@@ -46,7 +46,7 @@ namespace MicroProxy.Models
             private set { if (value != null) Sessao?.SetObjectAsJson(PATH_SITE_ORIGEM_REDIRECT, value); else Sessao?.Remove(PATH_SITE_ORIGEM_REDIRECT); }
         }
 
-        public static async Task ProcessarRequisicaoAsync(this HttpContextFromListener context, Configuracao configuracao, Func<Task> checkAbort)
+        public static async Task ProcessarRequisicaoAsync(this HttpContextFromListener context, Configuracao configuracao)
         {
             List<Task> tarefasAsync = [];
             var request = context.Request;
@@ -327,7 +327,6 @@ namespace MicroProxy.Models
 
                                                     if (response.Headers.Location.Count == 0)
                                                     {
-                                                        using var tarefaCheck = checkAbort();
                                                         absolutePathUrlOrigemRedirect = null;
 
                                                         try

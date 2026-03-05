@@ -289,8 +289,12 @@ namespace MicroProxy.Models
             }
             catch { }
 
-            if (HttpContext.RequestAborted.IsCancellationRequested || !_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable) { _clientStream.Close(); }
-            else if (tcpClient != null) { ConnectionPool.SaveConnection(tcpClient); }
+            try
+            {
+                if (HttpContext.RequestAborted.IsCancellationRequested || !_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable) { _clientStream.Close(); }
+                else if (tcpClient != null) { ConnectionPool.SaveConnection(tcpClient); }
+            }
+            catch { }
         }
     }
 
@@ -343,8 +347,6 @@ namespace MicroProxy.Models
             return "";
         }
 
-        public async Task<bool> CheckStateAsync() { try { return !_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable; } catch { return false; } }
-
         public override void Flush() { _buffer?.Flush(); BaseStream.Flush(); }
 
         public override void CopyTo(Stream destination, int bufferSize = 1) => CopyToAsync(destination, bufferSize).Wait();
@@ -381,8 +383,7 @@ namespace MicroProxy.Models
                         _buffer.Seek(_buffer.Length, SeekOrigin.Begin);
                         try
                         {
-                            using var ctsLink = CancellationTokenSource.CreateLinkedTokenSource(ct, new CancellationTokenSource(10).Token);
-                            _clientStream.Socket.Poll(0, SelectMode.SelectRead);
+                            using var ctsLink = CancellationTokenSource.CreateLinkedTokenSource(ct, new CancellationTokenSource(1).Token);
                             read = await BaseStream.ReadAsync(parteBuffer, ctsLink.Token);
                             if (read != 0) { await _buffer.WriteAsync(parteBuffer[..read], cancellationToken); posicaoAtualBuffer += read; }
                         }
@@ -395,12 +396,12 @@ namespace MicroProxy.Models
 
                     if (totalRead == 0)
                     {
-                        if (_clientStream.Socket.Connected && _httpPacote.Headers.ContentType.ToString().EndsWith("stream", StringComparison.OrdinalIgnoreCase)
-                            && (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable))
+                        if (_clientStream.Socket.Connected && (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable))
                         {
                             bufferNovo = true;
-                            cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(_httpPacote.Timeout * 1000).Token);
-                            await Task.Delay(1, cts.Token);
+                            cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(
+                                TimeSpan.FromSeconds(_buffer.Position == _buffer.Length && _httpPacote.Headers.ContentType.ToString().EndsWith("stream", StringComparison.OrdinalIgnoreCase)
+                                    ? _httpPacote.Timeout : 0.1)).Token);
                             continue;
                         }
                         else { loopAtivo = false; }
@@ -445,8 +446,7 @@ namespace MicroProxy.Models
             var cabecalho = MontarCabecalho();
             if (!string.IsNullOrEmpty(cabecalho)) { await _buffer.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cancellationToken); }
             await _buffer.WriteAsync(buffer.AsMemory(offset, count), cancellationToken);
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(200).Token);
-            _clientStream.Socket.Poll(0, SelectMode.SelectWrite);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(1).Token);
             await BaseStream.WriteAsync(_buffer.ToArray().AsMemory(0, (int)_buffer.Position), cts.Token);
             _buffer.Seek(0, SeekOrigin.Begin);
             _buffer.SetLength(0);

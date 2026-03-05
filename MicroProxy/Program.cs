@@ -88,19 +88,29 @@ foreach (var (listener, certificado) in tcpListeners)
         {
             var client = await listener.AcceptTcpClientAsync(app.Lifetime.ApplicationStopping);
             var clientStream = client.GetStream();
-            if (clientStream.Socket.Poll(1000, SelectMode.SelectRead) && !clientStream.DataAvailable) { clientStream.Socket.Dispose(); continue; }
+            if (!clientStream.Socket.Poll(1000, SelectMode.SelectRead) || !clientStream.DataAvailable) { clientStream.Socket.Dispose(); continue; }
             try { configuracao = new(); } catch { }
             if (configuracao.BufferReq > 0) { clientStream.Socket.ReceiveBufferSize = configuracao.BufferReq; }
             if (configuracao.BufferResp > 0) { clientStream.Socket.SendBufferSize = configuracao.BufferResp; }
             clientStream.Socket.NoDelay = configuracao.SemDelay;
             _ = Task.Run(async () =>
             {
+                using var ctsAbort = new CancellationTokenSource();
+                using var ctsAbortLink = CancellationTokenSource.CreateLinkedTokenSource(app.Lifetime.ApplicationStopping, ctsAbort.Token);
                 string url = "Destino inválido!";
                 using var clientTask = client;
                 await using var clientStreamTask = clientStream;
                 bool httpContextStarted = false;
                 IPEndPoint? ipRemoto = null;
                 IPEndPoint? ipLocal = null;
+                using Task? tarefaCheck = Task.Run(async () =>
+                {
+                    await Task.Delay(1000, ctsAbortLink.Token);
+                    while (clientStream.Socket.Connected && !ctsAbortLink.IsCancellationRequested
+                            && (!clientStream.Socket.Poll(1000, SelectMode.SelectRead) || clientStream.DataAvailable))
+                    { await Task.Delay(100, ctsAbortLink.Token); }
+                    try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { }
+                });
 
                 try
                 {
@@ -113,8 +123,6 @@ foreach (var (listener, certificado) in tcpListeners)
                     if (certificado != null)
                     { await sslStream.AuthenticateAsServerAsync(certificado, configuracao.SolicitarCertificadoCliente, SslProtocols.Tls12 | SslProtocols.Tls13, false); }
 
-                    using var ctsAbort = new CancellationTokenSource();
-                    using var ctsAbortLink = CancellationTokenSource.CreateLinkedTokenSource(app.Lifetime.ApplicationStopping, ctsAbort.Token);
                     using var scope = app.Services.CreateScope();
                     using HttpContextFromListener context = new(streamEmUso, clientStreamTask, configuracao.CompressionResponse, ctsAbortLink.Token);
                     httpContextStarted = true;
@@ -122,15 +130,8 @@ foreach (var (listener, certificado) in tcpListeners)
                     accessor.HttpContext = context;
                     url = new Uri(context.Request.GetDisplayUrl()).Authority;
                     ExibirLog($"URL de conexão solicitado: {url}");
-                    async Task checkAborted()
-                    {
-                        await Task.Delay(1000, ctsAbortLink.Token);
-                        while (!ctsAbortLink.IsCancellationRequested && await context.Response.Body.CheckStateAsync())
-                        { await Task.Delay(200, ctsAbortLink.Token); }
-                        try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { }
-                    }
 
-                    await context.ProcessarRequisicaoAsync(configuracao, checkAborted);
+                    await context.ProcessarRequisicaoAsync(configuracao);
                 }
                 catch (Exception ex)
                 {
@@ -156,6 +157,8 @@ foreach (var (listener, certificado) in tcpListeners)
 
                 ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {--tarefas})");
                 ExibirLog($"URL de conexão desconectada: {url}");
+                ctsAbort.Cancel();
+                tarefaCheck?.Wait();
             });
         }
     }));
