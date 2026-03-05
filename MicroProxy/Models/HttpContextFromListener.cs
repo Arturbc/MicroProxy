@@ -115,17 +115,21 @@ namespace MicroProxy.Models
     {
         internal HttpRequestFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context) : base(context)
         {
-            if (stream is not NetworkStream && stream is not SslStream) { throw new ArgumentException("O parâmetro é de tipo não suportado.", nameof(stream)); }
-            string[] methodsSemBody = [HttpMethods.Head, HttpMethods.Get, HttpMethods.Connect, HttpMethods.Delete, HttpMethods.Trace];
-            using var body = new BodyStream(stream, clientStream, this, true, false);
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(100).Token, context.RequestAborted);
-            string[] req = LerCabecalhoPacote(body, Headers, cts.Token);
-            uri = new(req[1].Contains("://") || req[1].StartsWith('/') ? req[1] : "http://" + req[1], UriKind.RelativeOrAbsolute);
-            Method = req[0];
-            Path = uri.IsAbsoluteUri ? uri.AbsolutePath : uri.OriginalString;
-            QueryString = new QueryString(uri.IsAbsoluteUri ? uri.Query : (uri.OriginalString.Contains('?') ? '?' + uri.OriginalString.Split('?')[1] : null));
-            Protocol = req[2];
-            Body = body.AtualizarBody(!methodsSemBody.Contains(Method), false);
+            try
+            {
+                if (stream is not NetworkStream && stream is not SslStream) { throw new ArgumentException("O parâmetro é de tipo não suportado.", nameof(stream)); }
+                string[] methodsSemBody = [HttpMethods.Head, HttpMethods.Get, HttpMethods.Connect, HttpMethods.Delete, HttpMethods.Trace];
+                using var body = new BodyStream(stream, clientStream, this, true, false);
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(100).Token, context.RequestAborted);
+                string[] req = LerCabecalhoPacote(body, Headers, cts.Token);
+                uri = new(req[1].Contains("://") || req[1].StartsWith('/') ? req[1] : "http://" + req[1], UriKind.RelativeOrAbsolute);
+                Method = req[0];
+                Path = uri.IsAbsoluteUri ? uri.AbsolutePath : uri.OriginalString;
+                QueryString = new QueryString(uri.IsAbsoluteUri ? uri.Query : (uri.OriginalString.Contains('?') ? '?' + uri.OriginalString.Split('?')[1] : null));
+                Protocol = req[2];
+                Body = body.AtualizarBody(!methodsSemBody.Contains(Method), false);
+            }
+            catch (Exception ex) { clientStream.Dispose(); throw new("Falha ao carregar cabeçalho da requisição", ex); }
         }
 
         private readonly Uri uri;
@@ -163,24 +167,28 @@ namespace MicroProxy.Models
 
         internal HttpResponseFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context, string? codec, bool clonarContext = false) : base(context)
         {
-            if (stream is not NetworkStream && stream is not SslStream) { throw new ArgumentException("O parâmetro é de tipo não suportado.", nameof(stream)); }
-            _clientStream = clientStream;
-            if (clonarContext)
+            try
             {
-                using var body = new BodyStream(stream, clientStream, this, true, false);
-                Timeout = context.Response.Timeout;
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(100).Token, context.RequestAborted);
-                string[] resp = LerCabecalhoPacote(body, Headers, cts.Token);
-                StatusCode = int.Parse(resp[1]);
-                Body = body.AtualizarBody(true, !HttpMethods.IsHead(context.Request.Method));
-                _codec = codec ?? Headers.ContentEncoding.ToString() ?? context.Response._codec;
+                if (stream is not NetworkStream && stream is not SslStream) { throw new ArgumentException("O parâmetro é de tipo não suportado.", nameof(stream)); }
+                _clientStream = clientStream;
+                if (clonarContext)
+                {
+                    using var body = new BodyStream(stream, clientStream, this, true, false);
+                    Timeout = context.Response.Timeout;
+                    using var cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(100).Token, context.RequestAborted);
+                    string[] resp = LerCabecalhoPacote(body, Headers, cts.Token);
+                    StatusCode = int.Parse(resp[1]);
+                    Body = body.AtualizarBody(true, !HttpMethods.IsHead(context.Request.Method));
+                    _codec = codec ?? Headers.ContentEncoding.ToString() ?? context.Response._codec;
+                }
+                else
+                {
+                    Body = new(stream, clientStream, this, false, !HttpMethods.IsHead(HttpContext.Request.Method));
+                    StatusCode = StatusCodes.Status200OK;
+                    _codec = codec;
+                }
             }
-            else
-            {
-                Body = new(stream, clientStream, this, false, !HttpMethods.IsHead(HttpContext.Request.Method));
-                StatusCode = StatusCodes.Status200OK;
-                _codec = codec;
-            }
+            catch (Exception ex) { clientStream.Dispose(); throw new("Falha ao carregar cabeçalho da resposta", ex); }
         }
         private readonly string? _codec;
         private readonly NetworkStream _clientStream;
