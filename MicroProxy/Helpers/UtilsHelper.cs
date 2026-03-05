@@ -160,6 +160,13 @@ namespace MicroProxy.Models
                         ExibirLog($"URL de destino: {Site.ExibirUrlAjustada(HttpMethods.IsConnect(request.Method) ? urlDestino.Authority : urlDestino.OriginalString)}");
                         site.PathAtualAdicional = urlDestino.AbsolutePath;
 
+                        var detalhesHost = await Dns.GetHostEntryAsync(urlDestino.Host, context.RequestAborted);
+                        var enderecosUrl = detalhesHost?.AddressList ?? [];
+
+                        if ((configuracao.PortaHttp == urlDestino.Port || configuracao.Ips.Any(i => i.EndsWith($":{urlDestino.Port}")))
+                            && enderecosUrl.Any(e => configuracao.Ips.Any(i => i.StartsWith(e.ToString() + ':') || i.Equals(e.ToString()))))
+                        { response.StatusCode = StatusCodes.Status409Conflict; throw new SocketException(response.StatusCode, "Loop de conexão detectado!"); }
+
                         if (tratarUrl)
                         {
                             if (urlDestino.Segments.Length > 1)
@@ -221,7 +228,7 @@ namespace MicroProxy.Models
                             if (HttpMethods.IsOptions(request.Method))
                             {
                                 var tipoSite = site.GetType();
-                                response.StatusCode = (int)HttpStatusCode.NoContent;
+                                response.StatusCode = StatusCodes.Status204NoContent;
                                 response.Headers.Append("Access-Control-Allow-Headers", configuracao.AllowHeaders);
                                 response.Headers.Append("Access-Control-Allow-Methods", configuracao.AllowMethods);
                                 response.Headers.Append("Access-Control-Allow-Origin", configuracao.AllowOrigins);
@@ -308,7 +315,6 @@ namespace MicroProxy.Models
 
                                                 memory.Seek(0, SeekOrigin.Begin);
                                                 memory.SetLength(0);
-
                                                 var serverResponse = new HttpResponseFromListener(serverStreamEmUso, serverStream, context, true);
                                                 Dictionary<string, StringValues> headersResposta = serverResponse.Headers.ToDictionary(h => h.Key, h => h.Value)
                                                         .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
@@ -316,7 +322,7 @@ namespace MicroProxy.Models
 
                                                 response.StatusCode = serverResponse.StatusCode;
 
-                                                if (site.UrlsDestinos.Length <= 1 || response.StatusCode < (int)HttpStatusCode.BadRequest)
+                                                if (site.UrlsDestinos.Length <= 1 || response.StatusCode < StatusCodes.Status400BadRequest)
                                                 {
                                                     site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(),
                                                         Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
@@ -344,7 +350,7 @@ namespace MicroProxy.Models
 
                                                         if (site.Exception != null)
                                                         {
-                                                            if (!response.HasStarted) { response.StatusCode = (int)HttpStatusCode.InternalServerError; }
+                                                            if (!response.HasStarted && response.StatusCode < StatusCodes.Status400BadRequest) { response.StatusCode = StatusCodes.Status500InternalServerError; }
 
                                                             if (site.UrlsDestinos.Length <= 1 || response.HasStarted)
                                                             { throw new Exception(response.HasStarted ? "A requisição foi encerrada." : "Nenhuma alternativa de conexão respondeu.", site.Exception); }
@@ -374,17 +380,18 @@ namespace MicroProxy.Models
                                     }
                                     catch (Exception ex)
                                     {
-                                        response.StatusCode = StatusCodes.Status502BadGateway;
-                                        throw new Exception(null, ex);
+                                        if (response.StatusCode < StatusCodes.Status400BadRequest) { response.StatusCode = StatusCodes.Status502BadGateway; }
+                                        site.Exception = ex;
                                     }
                                 }
                             }
                         }
-                    } while (site.UrlsDestinos.Length > 1 && response.StatusCode >= (int)HttpStatusCode.BadRequest);
+                    } while (site.UrlsDestinos.Length > 1 && response.StatusCode >= StatusCodes.Status400BadRequest);
                 }
 
                 PathUrlAtual = pathUrlAtual;
                 AbsolutePathUrlOrigemRedirect = absolutePathUrlOrigemRedirect;
+                if (response.StatusCode >= StatusCodes.Status400BadRequest && site?.Exception != null) { throw new(null, site.Exception); }
             }
             catch (Exception ex)
             {

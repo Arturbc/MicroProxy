@@ -10,8 +10,9 @@ namespace MicroProxy.Models
 
         public static async Task<TcpClient> GetConnectionAsync(string host, int port, CancellationToken cancel = default)
         {
-            var ip = await Dns.GetHostAddressesAsync(host, cancel);
-            var conexao = $"{ip}:{port}";
+            var detalhesHost = await Dns.GetHostEntryAsync(host, cancel);
+            var ip = detalhesHost?.AddressList.First().ToString();
+            var conexao = $"{ip ?? host}:{port}";
             var pool = _pools.GetOrAdd(conexao, _ => new ConcurrentQueue<TcpClient>());
             if (pool.TryDequeue(out var tcp) && tcp.Connected && IsAlive(tcp)) { return tcp; }
 

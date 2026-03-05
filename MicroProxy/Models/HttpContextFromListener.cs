@@ -41,6 +41,7 @@ namespace MicroProxy.Models
     {
         public HttpContextFromListener(Stream stream, NetworkStream clientStream, CancellationToken cancellationToken = default)
             : this(stream, clientStream, null, cancellationToken) { }
+
         public HttpContextFromListener(Stream stream, NetworkStream clientStream, string? codec, CancellationToken cancellationToken = default)
         {
             Request = new(stream, clientStream, this);
@@ -114,6 +115,7 @@ namespace MicroProxy.Models
     {
         internal HttpRequestFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context) : base(context)
         {
+            if (stream is not NetworkStream && stream is not SslStream) { throw new ArgumentException("O parâmetro é de tipo não suportado.", nameof(stream)); }
             string[] methodsSemBody = [HttpMethods.Head, HttpMethods.Get, HttpMethods.Connect, HttpMethods.Delete, HttpMethods.Trace];
             using var body = new BodyStream(stream, clientStream, this, true, false);
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(100).Token, context.RequestAborted);
@@ -158,12 +160,14 @@ namespace MicroProxy.Models
     {
         internal HttpResponseFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context, bool clonarContext = false)
             : this(stream, clientStream, context, null, clonarContext) { }
+
         internal HttpResponseFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context, string? codec, bool clonarContext = false) : base(context)
         {
+            if (stream is not NetworkStream && stream is not SslStream) { throw new ArgumentException("O parâmetro é de tipo não suportado.", nameof(stream)); }
             _clientStream = clientStream;
             if (clonarContext)
             {
-                using var body = new BodyStream(stream, clientStream, this, true, !HttpMethods.IsHead(context.Request.Method));
+                using var body = new BodyStream(stream, clientStream, this, true, false);
                 Timeout = context.Response.Timeout;
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(100).Token, context.RequestAborted);
                 string[] resp = LerCabecalhoPacote(body, Headers, cts.Token);
@@ -174,7 +178,7 @@ namespace MicroProxy.Models
             else
             {
                 Body = new(stream, clientStream, this, false, !HttpMethods.IsHead(HttpContext.Request.Method));
-                StatusCode = (int)HttpStatusCode.OK;
+                StatusCode = StatusCodes.Status200OK;
                 _codec = codec;
             }
         }
@@ -327,13 +331,13 @@ namespace MicroProxy.Models
         public override long Position { get => StreamRef.Position - _bufferInicio; set => StreamRef.Position = value + _bufferInicio; }
         public bool DataAvailable => _clientStream.DataAvailable || _buffer.Length > _buffer.Position;
 
-        internal BodyStream AtualizarBody(bool read = true, bool write = true, bool canSeek = false)
+        internal BodyStream AtualizarBody(bool? canRead = null, bool? canWrite = null, bool? canSeek = null)
         {
             var novoBuffer = new MemoryStream();
             _buffer.CopyTo(novoBuffer);
             _buffer.Dispose();
             novoBuffer.Seek(0, SeekOrigin.Begin);
-            return new(BaseStream, _clientStream, _httpPacote, read, write, canSeek, novoBuffer);
+            return new(BaseStream, _clientStream, _httpPacote, canRead ?? CanRead, canWrite ?? CanWrite, canSeek ?? CanSeek, novoBuffer);
         }
 
         internal string MontarCabecalho()
@@ -392,19 +396,16 @@ namespace MicroProxy.Models
                     }
                     else { read = await _buffer.ReadAsync(parteBuffer, cancellationToken); posicaoAtualBuffer = (int)_buffer.Position; }
                     totalRead += read;
-                    loopAtivo = totalRead < count && (totalRead == 0 || read > 0) && (bufferNovo || _buffer.Position < _buffer.Length);
+                    loopAtivo = totalRead < count && (totalRead == 0 || read > 0) && (bufferNovo || _buffer.Position < _buffer.Length)
+                        && _clientStream.Socket.Connected && (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable);
 
-                    if (totalRead == 0)
+                    if (loopAtivo)
                     {
-                        if (_clientStream.Socket.Connected && (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable))
-                        {
-                            bufferNovo = true;
-                            cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(
-                                TimeSpan.FromSeconds(_buffer.Position == _buffer.Length && _httpPacote.Headers.ContentType.ToString().EndsWith("stream", StringComparison.OrdinalIgnoreCase)
-                                    ? _httpPacote.Timeout : 0.1)).Token);
-                            continue;
-                        }
-                        else { loopAtivo = false; }
+                        bufferNovo = true;
+                        cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(
+                            TimeSpan.FromSeconds(_buffer.Position == _buffer.Length && _httpPacote.Headers.ContentType.ToString().EndsWith("stream", StringComparison.OrdinalIgnoreCase)
+                                ? _httpPacote.Timeout : 0.1)).Token);
+                        continue;
                     }
 
                     cts?.Dispose();

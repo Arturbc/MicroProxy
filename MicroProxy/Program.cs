@@ -6,6 +6,7 @@ using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
+using System.Threading.Channels;
 using static MicroProxy.Helpers.CriptografiaHelper;
 using static MicroProxy.Helpers.FuncoesHelper;
 using static MicroProxy.Models.Configuracao;
@@ -128,7 +129,8 @@ foreach (var (listener, certificado) in tcpListeners)
                     httpContextStarted = true;
                     var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();
                     accessor.HttpContext = context;
-                    url = new Uri(context.Request.GetDisplayUrl()).Authority;
+                    var uri = new Uri(context.Request.GetDisplayUrl());
+                    url = uri.Authority;
                     ExibirLog($"URL de conexão solicitado: {url}");
 
                     await context.ProcessarRequisicaoAsync(configuracao);
