@@ -88,7 +88,7 @@ foreach (var (listener, certificado) in tcpListeners)
         {
             var client = await listener.AcceptTcpClientAsync(app.Lifetime.ApplicationStopping);
             var clientStream = client.GetStream();
-            if (!clientStream.Socket.Poll(1000, SelectMode.SelectRead) || !clientStream.DataAvailable) { clientStream.Socket.Dispose(); continue; }
+            if (clientStream.Socket.Poll(1000, SelectMode.SelectRead) && !clientStream.DataAvailable) { clientStream.Socket.Dispose(); continue; }
             try { configuracao = new(); } catch { }
             if (configuracao.BufferReq > 0) { clientStream.Socket.ReceiveBufferSize = configuracao.BufferReq; }
             if (configuracao.BufferResp > 0) { clientStream.Socket.SendBufferSize = configuracao.BufferResp; }
