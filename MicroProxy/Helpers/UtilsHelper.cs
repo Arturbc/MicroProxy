@@ -127,7 +127,7 @@ namespace MicroProxy.Models
                     else { break; }
                 }
 
-                site = sites.OrderByDescending(s => s.BindUrls == null)
+                site = sites.OrderBy(s => s.BindUrls == null)
                     .ThenByDescending(s => s.Methods.Contains(request.Method, StringComparer.InvariantCultureIgnoreCase))
                     .ThenBy(s => s.Methods.Length).ThenBy(s => string.Join(',', s.Methods))
                     .FirstOrDefault(s => s.BindUrls == null || s.BindUrls.Any(b => melhorBind != null && new Uri(b).OriginalString.Equals(melhorBind.OriginalString)));
@@ -222,8 +222,8 @@ namespace MicroProxy.Models
                         {
                             site.InicializarExecutavel();
                             pathUrlDestino ??= site.PathAtualSubstituto.TrimEnd('/') + pathUrlCliente;
-                            context.Request.Timeout = site.SegundosTempoMax;
-                            context.Response.Timeout = site.SegundosTempoMax;
+                            request.Timeout = site.SegundosTempoMax;
+                            response.Timeout = site.SegundosTempoMax;
 
                             if (HttpMethods.IsOptions(request.Method))
                             {

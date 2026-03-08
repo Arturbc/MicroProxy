@@ -108,7 +108,7 @@ foreach (var (listener, certificado) in tcpListeners)
                     await Task.Delay(1000, ctsAbortLink.Token);
                     while (clientStream.Socket.Connected && !ctsAbortLink.IsCancellationRequested
                             && (!clientStream.Socket.Poll(1000, SelectMode.SelectRead) || clientStream.DataAvailable))
-                    { await Task.Delay(100, ctsAbortLink.Token); }
+                    { await Task.Delay(1000, ctsAbortLink.Token); }
                     try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { }
                 });
 
