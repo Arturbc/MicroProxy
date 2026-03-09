@@ -1,11 +1,13 @@
 ﻿using MicroProxy.Models;
 using Microsoft.Extensions.Primitives;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
 using System.Text;
 
 namespace MicroProxy.Helpers
 {
+    [DebuggerNonUserCode]
     public static class HttpHelper
     {
         public static string ReadLine(Stream stream) => ReadLineAsync(stream).Result;

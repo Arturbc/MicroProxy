@@ -3,9 +3,9 @@ using System.Diagnostics;
 
 namespace MicroProxy.Extensions
 {
+    [DebuggerNonUserCode]
     public static class ExceptionExtension
     {
-        [DebuggerNonUserCode]
         public static bool Contains(this Exception ex, Type type) => Contains(ex, [type]);
 
         public static bool Contains(this Exception ex, Type[] types)

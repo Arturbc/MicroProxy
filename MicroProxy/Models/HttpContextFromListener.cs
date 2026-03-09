@@ -3,6 +3,7 @@ using MicroProxy.Helpers;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Security;
@@ -18,6 +19,7 @@ namespace MicroProxy.Models
         HttpContextFromListener? HttpContext { get; set; }
     }
 
+    [DebuggerNonUserCode]
     public class HttpContextFromListenerAccessor : IHttpContextFromListenerAccessor
     {
         private static readonly AsyncLocal<HttpContextFromListenerHolder> _httpContextCurrent = new();
@@ -37,6 +39,7 @@ namespace MicroProxy.Models
         private sealed class HttpContextFromListenerHolder { public HttpContextFromListener? Context; }
     }
 
+    [DebuggerNonUserCode]
     public class HttpContextFromListener : IDisposable
     {
         public HttpContextFromListener(Stream stream, NetworkStream clientStream, CancellationToken cancellationToken = default)
@@ -79,6 +82,7 @@ namespace MicroProxy.Models
         }
     }
 
+    [DebuggerNonUserCode]
     public class ConnectionInfoFromListener(Socket socket, X509Certificate2? certificado = null)
     {
         public X509Certificate2? ClientCertificate { get; } = certificado;
@@ -86,6 +90,7 @@ namespace MicroProxy.Models
         public IPAddress RemoteIpAddress { get; } = ((IPEndPoint)socket.RemoteEndPoint!).Address;
     }
 
+    [DebuggerNonUserCode]
     public abstract class HttpPacoteFromListener(HttpContextFromListener context) : IDisposable
     {
         private bool disposedValue;
@@ -111,6 +116,7 @@ namespace MicroProxy.Models
         }
     }
 
+    [DebuggerNonUserCode]
     public class HttpRequestFromListener : HttpPacoteFromListener
     {
         internal HttpRequestFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context) : base(context)
@@ -160,6 +166,7 @@ namespace MicroProxy.Models
         public string GetEncodedPathAndQuery() => uri.IsAbsoluteUri ? uri.PathAndQuery : uri.OriginalString;
     }
 
+    [DebuggerNonUserCode]
     public class HttpResponseFromListener : HttpPacoteFromListener
     {
         internal HttpResponseFromListener(Stream stream, NetworkStream clientStream, HttpContextFromListener context, bool clonarContext = false)
@@ -175,8 +182,7 @@ namespace MicroProxy.Models
                 {
                     using var body = new BodyStream(stream, clientStream, this, true, false);
                     Timeout = context.Response.Timeout;
-                    using var cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(1000).Token, context.RequestAborted);
-                    string[] resp = LerCabecalhoPacote(body, Headers, cts.Token);
+                    string[] resp = LerCabecalhoPacote(body, Headers, context.RequestAborted);
                     StatusCode = int.Parse(resp[1]);
                     Body = body.AtualizarBody(true, !HttpMethods.IsHead(context.Request.Method));
                     _codec = codec ?? Headers.ContentEncoding.ToString() ?? context.Response._codec;
@@ -310,6 +316,7 @@ namespace MicroProxy.Models
         }
     }
 
+    [DebuggerNonUserCode]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1844:Fornecer substituições baseadas em memória de métodos assíncronos ao subclasse 'Stream'", Justification = "Sem necessidade")]
     public class BodyStream : Stream, IDisposable
     {
