@@ -309,14 +309,14 @@ namespace MicroProxy.Models
 
             try
             {
-                if (HttpContext.RequestAborted.IsCancellationRequested || !_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable) { await _clientStream.DisposeAsync(); }
+                if (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable) { await _clientStream.DisposeAsync(); }
                 else if (tcpClient != null) { ConnectionPool.SaveConnection(tcpClient); }
             }
             catch { }
         }
     }
 
-    [DebuggerNonUserCode]
+    //[DebuggerNonUserCode]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1844:Fornecer substituições baseadas em memória de métodos assíncronos ao subclasse 'Stream'", Justification = "Sem necessidade")]
     public class BodyStream : Stream, IDisposable
     {
@@ -441,9 +441,30 @@ namespace MicroProxy.Models
             }
 
             cts?.Dispose();
-            var fimBuffer = totalRead + offset;
+            var indexChunk = internalBuffer.AsSpan(1).IndexOf((byte)'\r');
+            var chunk = -1;
+
+            if (indexChunk != -1)
+            {
+                indexChunk += 3;
+                var byteString = Encoding.UTF8.GetString(internalBuffer[..indexChunk]);
+                var hexString = byteString.Trim(['\r', '\n', ' ']);
+                try { chunk = Convert.ToInt32(hexString, 16); }
+                catch { indexChunk = 0; }
+            }
+            else { indexChunk = 0; }
+
+            if (chunk > count || chunk == -1) { chunk = count; }
+
+            if (totalRead > chunk)
+            {
+                posicaoAtualBuffer -= totalRead - chunk - indexChunk;
+                totalRead = chunk;
+            }
+
             _buffer.Seek(posicaoAtualBuffer, SeekOrigin.Begin);
-            Array.Copy(internalBuffer, buffer, fimBuffer);
+            Array.Copy(internalBuffer[indexChunk..], offset, buffer, offset, totalRead);
+            //Console.WriteLine($"\"{Encoding.UTF8.GetString(buffer.AsMemory(offset, chunk).ToArray()).Replace("\n", "\\n\n").Replace("\r", "\\r")}\"");
             if (!CanSeek)
             {
                 if (_buffer.Position == _buffer.Length)
