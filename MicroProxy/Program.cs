@@ -46,9 +46,9 @@ foreach (string url in urls)
     var portaHttp = fonteUrlsConfig ? configuracao.PortaHttp : 0;
     ushort porta = ushort.Parse(uri == null ? (ipPorta.Groups["porta"].Success ? ipPorta.Groups["porta"].Value : "80") : uri.Port.ToString());
 
-    if (!enderecosIp.Contains(ip))
+    if (!https || !enderecosIp.Contains(ip))
     {
-        enderecosIp.Add(ip);
+        if (!enderecosIp.Contains(ip)) { enderecosIp.Add(ip); }
 
         if (string.IsNullOrEmpty(certificadoStr) || portaHttp != 0)
         {
