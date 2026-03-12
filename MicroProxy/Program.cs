@@ -14,7 +14,6 @@ using static MicroProxy.Models.Site;
 Configuracao configuracao = new();
 string[]? codecConteudo = configuracao.CompressionResponse?.Split(',', StringSplitOptions.TrimEntries);
 
-bool https = true;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -27,14 +26,14 @@ builder.Services.AddSession(options =>
     options.Cookie.IsEssential = true;
 });
 
-https = false;
-
 var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS")?.Split(';').OrderBy(u => u.StartsWith("https", StringComparison.OrdinalIgnoreCase)).ToArray() ?? configuracao.Ips;
 List<(TcpListener listener, X509Certificate2? certificado)> tcpListeners = [];
 bool fonteUrlsConfig = urls == configuracao.Ips;
 var certificadoStr = fonteUrlsConfig ? configuracao.CertificadoPrivado : null;
 List<string> mensagens = [];
 List<Task> tarefasListeners = [];
+List<IPAddress> enderecosIp = [];
+bool https = false;
 
 foreach (string url in urls)
 {
@@ -47,8 +46,10 @@ foreach (string url in urls)
     var portaHttp = fonteUrlsConfig ? configuracao.PortaHttp : 0;
     ushort porta = ushort.Parse(uri == null ? (ipPorta.Groups["porta"].Success ? ipPorta.Groups["porta"].Value : "80") : uri.Port.ToString());
 
-    if (!https)
+    if (!enderecosIp.Contains(ip))
     {
+        enderecosIp.Add(ip);
+
         if (string.IsNullOrEmpty(certificadoStr) || portaHttp != 0)
         {
             if (string.IsNullOrEmpty(certificadoStr) && (ipPorta.Groups["porta"].Success || portaHttp == 0)) { portaHttp = porta; }
