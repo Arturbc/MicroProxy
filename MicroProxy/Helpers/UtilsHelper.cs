@@ -257,7 +257,6 @@ namespace MicroProxy.Models
                                     if (site.BufferResp > 0) { tcpClient.SendBufferSize = site.BufferResp; }
                                     var serverStream = tcpClient.GetStream();
                                     var serverSslStream = new SslStream(serverStream);
-                                    using var memory = new MemoryStream();
                                     var destinoHttps = urlDestino.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase);
                                     var serverStreamEmUso = destinoHttps ? (Stream)serverSslStream : serverStream;
 
@@ -290,31 +289,36 @@ namespace MicroProxy.Models
 
                                             if (!response.HasStarted)
                                             {
-                                                Dictionary<string, StringValues> headersReq = request.Headers.Where(hr => !HeadersProibidos.Union(HeadersProibidosReq)
-                                                        .Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase))).ToDictionary();
-
-                                                headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
-                                                site.ReqHeaders = JsonConvert.SerializeObject(headersReq.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
-                                                var cabecalho = MontarCabecalhoPacote(request.Protocol, site.PathAndQueryAtual, request.Method, headersReq);
-
-                                                if (request.Body.CanRead) { request.EnableBuffering(); if (request.Body.CanSeek) { request.Body.Seek(0, SeekOrigin.Begin); } }
-
-                                                try
+                                                tarefasAsync.Add(Task.Run(async () =>
                                                 {
-                                                    await serverStreamEmUso.WriteAsync(Encoding.UTF8.GetBytes(cabecalho));
-                                                    if (request.Body.CanRead) { await request.Body.CopyToAsync(site.BufferReq, [serverStreamEmUso, memory], context.RequestAborted); }
-                                                    if (serverStreamEmUso.CanWrite) { await serverStreamEmUso.FlushAsync(context.RequestAborted); }
-                                                }
-                                                catch (Exception ex) { site.Exception = ex; }
-                                                await memory.FlushAsync();
-                                                memory.Seek(0, SeekOrigin.Begin);
-                                                using StreamReader readerReq = new(memory);
-                                                site.ReqBody = await readerReq.ReadToEndAsync();
+                                                    using var memoryReq = new MemoryStream();
+                                                    Dictionary<string, StringValues> headersReq = request.Headers.Where(hr => !HeadersProibidos.Union(HeadersProibidosReq)
+                                                            .Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase))).ToDictionary();
 
-                                                if (site.Exception != null) { throw new("Falha durante a requisição", site.Exception); }
+                                                    headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
+                                                    site.ReqHeaders = JsonConvert.SerializeObject(headersReq.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
+                                                    var cabecalho = MontarCabecalhoPacote(request.Protocol, site.PathAndQueryAtual, request.Method, headersReq);
 
-                                                memory.Seek(0, SeekOrigin.Begin);
-                                                memory.SetLength(0);
+                                                    if (request.Body.CanRead) { request.EnableBuffering(); if (request.Body.CanSeek) { request.Body.Seek(0, SeekOrigin.Begin); } }
+
+                                                    try
+                                                    {
+                                                        await serverStreamEmUso.WriteAsync(Encoding.UTF8.GetBytes(cabecalho));
+                                                        if (request.Body.CanRead) { await request.Body.CopyToAsync(site.BufferReq, [serverStreamEmUso, memoryReq], context.RequestAborted); }
+                                                        if (serverStreamEmUso.CanWrite) { await serverStreamEmUso.FlushAsync(); }
+                                                    }
+                                                    catch (Exception ex) { site.Exception = ex; }
+                                                    await memoryReq.FlushAsync();
+                                                    memoryReq.Seek(0, SeekOrigin.Begin);
+                                                    using StreamReader readerReq = new(memoryReq);
+                                                    site.ReqBody = await readerReq.ReadToEndAsync();
+
+                                                    if (site.Exception != null) { throw new("Falha durante a requisição", site.Exception); }
+                                                }, context.RequestAborted));
+
+                                                tarefasAsync.Add(Task.Delay(1000));
+                                                await Task.WhenAny(tarefasAsync);
+                                                using var memoryResp = new MemoryStream();
                                                 var serverResponse = new HttpResponseFromListener(serverStreamEmUso, serverStream, context, true);
                                                 Dictionary<string, StringValues> headersResposta = serverResponse.Headers.ToDictionary(h => h.Key, h => h.Value)
                                                         .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
@@ -338,15 +342,16 @@ namespace MicroProxy.Models
                                                         try
                                                         {
                                                             if (response.Body.CanWrite)
-                                                            { await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memory], context.RequestAborted); }
+                                                            { await serverResponse.Body.CopyToAsync(site.BufferResp, [response.Body, memoryResp], context.RequestAborted); }
                                                         }
-                                                        catch (Exception ex) { site.Exception = ex; }
+                                                        catch (Exception ex) { site.Exception ??= ex; }
 
                                                         await serverResponse.CompleteAsync(tcpClient);
-                                                        await memory.FlushAsync();
-                                                        memory.Seek(0, SeekOrigin.Begin);
-                                                        using StreamReader readerResp = new(memory);
+                                                        await memoryResp.FlushAsync();
+                                                        memoryResp.Seek(0, SeekOrigin.Begin);
+                                                        using StreamReader readerResp = new(memoryResp);
                                                         site.RespBody = await readerResp.ReadToEndAsync();
+                                                        await Task.WhenAny(tarefasAsync);
 
                                                         if (site.Exception != null)
                                                         {

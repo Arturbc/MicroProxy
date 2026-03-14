@@ -303,20 +303,25 @@ namespace MicroProxy.Models
                 var cabecalho = Body.MontarCabecalho();
                 HasStarted = true;
                 if (!string.IsNullOrEmpty(cabecalho)) { await Body.BaseStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), HttpContext.RequestAborted); }
-                await Body.FlushAsync(HttpContext.RequestAborted);
             }
             catch { }
 
+            try { await Body.FlushAsync(); } catch { }
+
             try
             {
-                if (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable) { await _clientStream.DisposeAsync(); }
-                else if (tcpClient != null) { ConnectionPool.SaveConnection(tcpClient); }
+                if (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable) { await _clientStream.FlushAsync(); }
+                if (tcpClient != null)
+                {
+                    if (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable) { await _clientStream.DisposeAsync(); }
+                    else { ConnectionPool.SaveConnection(tcpClient); }
+                }
             }
             catch { }
         }
     }
 
-    //[DebuggerNonUserCode]
+    [DebuggerNonUserCode]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1844:Fornecer substituições baseadas em memória de métodos assíncronos ao subclasse 'Stream'", Justification = "Sem necessidade")]
     public class BodyStream : Stream, IDisposable
     {
