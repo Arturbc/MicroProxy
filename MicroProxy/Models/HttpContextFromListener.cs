@@ -297,28 +297,17 @@ namespace MicroProxy.Models
         {
             try
             {
-                var cabecalho = Body.MontarCabecalho();
-                HasStarted = true;
-                if (!string.IsNullOrEmpty(cabecalho)) { await Body.BaseStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), HttpContext.RequestAborted); }
-            }
-            catch { }
-
-            try { await Body.FlushAsync(); } catch { }
-
-            try
-            {
-                if (ConnectionPool.IsAlive(_clientStream.Socket))
-                {
-                    using var cts = new CancellationTokenSource(1000);
-                    var buffer = new byte[_clientStream.Socket.Available];
-
-                    do { await Task.Delay(10); await _clientStream.ReadExactlyAsync(buffer, cts.Token); } while (_clientStream.DataAvailable);
-                }
                 if (tcpClient != null)
                 {
-                    if (tcpClient.GetStream() != _clientStream) { throw new ArgumentException("O parâmetro não pertence ao contexto...", nameof(tcpClient)); }
+                    if (tcpClient.Client != _clientStream.Socket) { throw new ArgumentException("O parâmetro não pertence ao contexto...", nameof(tcpClient)); }
                     if (!ConnectionPool.IsAlive(tcpClient)) { await _clientStream.DisposeAsync(); }
                     else { ConnectionPool.SaveConnection(tcpClient); }
+                }
+                else
+                {
+                    var cabecalho = Body.MontarCabecalho();
+                    if (!string.IsNullOrEmpty(cabecalho)) { await Body.BaseStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), HttpContext.RequestAborted); }
+                    try { await Body.FlushAsync(); } catch { }
                 }
             }
             catch { }
