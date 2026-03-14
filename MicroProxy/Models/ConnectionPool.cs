@@ -41,17 +41,18 @@ namespace MicroProxy.Models
             catch (ObjectDisposedException) { }
         }
 
-        static bool IsAlive(TcpClient tcp)
+        public static bool IsAlive(TcpClient tcp) => IsAlive(tcp.Client);
+
+        public static bool IsAlive(Socket socket)
         {
             try
             {
-                var socket = tcp.Client;
-                if (!socket.Connected) { return false; }
+                if (!socket.Connected || socket.Poll(1000, SelectMode.SelectError)) { return false; }
                 return !socket.Poll(1000, SelectMode.SelectRead) || socket.Available != 0;
             }
             catch
             {
-                tcp.Dispose();
+                socket.Dispose();
                 return false;
             }
         }
