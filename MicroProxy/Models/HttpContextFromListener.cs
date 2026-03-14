@@ -246,10 +246,7 @@ namespace MicroProxy.Models
         {
             var stream = fileInfo.CreateReadStream();
 
-            if (Headers.ContentEncoding.Count == 0)
-            {
-                stream = ProcessarCodificacao(stream);
-            }
+            if (Headers.ContentEncoding.Count == 0) { stream = ProcessarCodificacao(stream); }
             using var streamEmUso = stream;
             ContentLength = streamEmUso.Length;
             await streamEmUso.CopyToAsync(Body, cancellationToken);
@@ -310,9 +307,16 @@ namespace MicroProxy.Models
 
             try
             {
-                if (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable) { await _clientStream.FlushAsync(); }
+                if (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable)
+                {
+                    using var cts = new CancellationTokenSource(1000);
+                    var buffer = new byte[_clientStream.Socket.Available];
+
+                    do { await Task.Delay(10); await _clientStream.ReadExactlyAsync(buffer, cts.Token); } while (_clientStream.DataAvailable);
+                }
                 if (tcpClient != null)
                 {
+                    if (tcpClient.GetStream() != _clientStream) { throw new ArgumentException("O parâmetro não pertence ao contexto...", nameof(tcpClient)); }
                     if (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable) { await _clientStream.DisposeAsync(); }
                     else { ConnectionPool.SaveConnection(tcpClient); }
                 }

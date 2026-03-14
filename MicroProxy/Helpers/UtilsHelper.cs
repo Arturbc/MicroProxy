@@ -309,9 +309,19 @@ namespace MicroProxy.Models
                                                     }
                                                     catch (Exception ex) { site.Exception = ex; }
                                                     await memoryReq.FlushAsync();
-                                                    memoryReq.Seek(0, SeekOrigin.Begin);
-                                                    using StreamReader readerReq = new(memoryReq);
-                                                    site.ReqBody = await readerReq.ReadToEndAsync();
+
+                                                    try
+                                                    {
+                                                        using StreamReader readerReq = new(memoryReq.Extrair(response.Headers.ContentType, response.Headers.ContentEncoding));
+                                                        site.ReqBody = await readerReq.ReadToEndAsync();
+                                                    }
+                                                    catch (InvalidDataException ex)
+                                                    {
+                                                        site.Exception ??= ex;
+                                                        memoryReq.Seek(0, SeekOrigin.Begin);
+                                                        using StreamReader readerReq = new(memoryReq);
+                                                        site.ReqBody = await readerReq.ReadToEndAsync();
+                                                    }
 
                                                     if (site.Exception != null) { throw new("Falha durante a requisição", site.Exception); }
                                                 }, context.RequestAborted));
@@ -348,9 +358,18 @@ namespace MicroProxy.Models
 
                                                         await serverResponse.CompleteAsync(tcpClient);
                                                         await memoryResp.FlushAsync();
-                                                        memoryResp.Seek(0, SeekOrigin.Begin);
-                                                        using StreamReader readerResp = new(memoryResp);
-                                                        site.RespBody = await readerResp.ReadToEndAsync();
+                                                        try
+                                                        {
+                                                            using StreamReader readerResp = new(memoryResp.Extrair(response.Headers.ContentType, response.Headers.ContentEncoding));
+                                                            site.RespBody = await readerResp.ReadToEndAsync();
+                                                        }
+                                                        catch (InvalidDataException ex)
+                                                        {
+                                                            site.Exception ??= ex;
+                                                            memoryResp.Seek(0, SeekOrigin.Begin);
+                                                            using StreamReader readerResp = new(memoryResp);
+                                                            site.RespBody = await readerResp.ReadToEndAsync();
+                                                        }
                                                         await Task.WhenAny(tarefasAsync);
 
                                                         if (site.Exception != null)
@@ -380,7 +399,7 @@ namespace MicroProxy.Models
                                                 }
                                             }
                                         }
-                                        await response.CompleteAsync(tcpClient);
+                                        await response.CompleteAsync();
                                         if (tarefasAsync.Count != 0) { await Task.WhenAny(tarefasAsync); }
                                     }
                                     catch (Exception ex)

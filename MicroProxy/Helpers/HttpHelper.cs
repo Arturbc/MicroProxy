@@ -69,17 +69,17 @@ namespace MicroProxy.Helpers
 
         public static string MontarHeadersCabecalhoPacote(Dictionary<string, StringValues> headers) => string.Join("", headers.Select(h => $"{h.Key}: {h.Value}\r\n"));
 
-        public static Stream Compactar(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null,
-            CompressionLevel compressionLevel = CompressionLevel.Optimal) => conteudoResposta.Compactar(out _, tipoConteudo, codecConteudo, compressionLevel);
+        public static Stream Compactar(this Stream stream, string? tipoConteudo = null, string? codecConteudo = null,
+            CompressionLevel compressionLevel = CompressionLevel.Optimal) => stream.Compactar(out _, tipoConteudo, codecConteudo, compressionLevel);
 
-        public static Stream Compactar(this Stream conteudoResposta, out string? codecUsado, string? tipoConteudo = null, string? codecConteudo = null,
-            CompressionLevel compressionLevel = CompressionLevel.Optimal) => conteudoResposta.ProcessarCompactacao(compressionLevel, out codecUsado, tipoConteudo, codecConteudo);
+        public static Stream Compactar(this Stream stream, out string? codecUsado, string? tipoConteudo = null, string? codecConteudo = null,
+            CompressionLevel compressionLevel = CompressionLevel.Optimal) => stream.ProcessarCompactacao(compressionLevel, out codecUsado, tipoConteudo, codecConteudo);
 
-        public static Stream Extrair(this Stream conteudoResposta, string? tipoConteudo = null, string? codecConteudo = null)
-            => conteudoResposta.Extrair(out _, tipoConteudo, codecConteudo);
+        public static Stream Extrair(this Stream stream, string? tipoConteudo = null, string? codecConteudo = null)
+            => stream.Extrair(out _, tipoConteudo, codecConteudo);
 
-        public static Stream Extrair(this Stream conteudoResposta, out string? codecUsado, string? tipoConteudo = null, string? codecConteudo = null)
-            => conteudoResposta.ProcessarCompactacao(CompressionMode.Decompress, out codecUsado, tipoConteudo, codecConteudo);
+        public static Stream Extrair(this Stream stream, out string? codecUsado, string? tipoConteudo = null, string? codecConteudo = null)
+            => stream.ProcessarCompactacao(CompressionMode.Decompress, out codecUsado, tipoConteudo, codecConteudo);
 
         public static Stream ProcessarCompactacao<T>(this Stream stream, T compressionMode, string? tipoConteudo = null, string? codecConteudo = null)
             => ProcessarCompactacao(stream, (dynamic)compressionMode!, out string? _, tipoConteudo, codecConteudo);
