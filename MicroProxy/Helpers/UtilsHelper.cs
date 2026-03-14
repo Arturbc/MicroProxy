@@ -249,7 +249,7 @@ namespace MicroProxy.Models
 
                                 if (pathDiretorioArquivo == "")
                                 {
-                                    var tcpClient = await ConnectionPool.GetConnectionAsync(urlDestino.Host, urlDestino.Port, context.RequestAborted);
+                                    var tcpClient = await ConnectionPool.GetConnectionAsync(urlDestino.Host, urlDestino.Port, site.PoolConexoes, context.RequestAborted);
                                     tcpClient.NoDelay = site.SemDelay;
                                     tcpClient.ReceiveTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds;
                                     tcpClient.SendTimeout = (int)TimeSpan.FromSeconds(site.SegundosTempoMax).TotalMilliseconds;

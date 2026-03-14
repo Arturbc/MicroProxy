@@ -8,7 +8,10 @@ namespace MicroProxy.Models
     {
         static readonly ConcurrentDictionary<string, ConcurrentQueue<TcpClient>> _pools = [];
 
-        public static async Task<TcpClient> GetConnectionAsync(string host, int port, CancellationToken cancel = default)
+        public static Task<TcpClient> GetConnectionAsync(string host, int port, CancellationToken cancel = default)
+            => GetConnectionAsync(host, port, 1, cancel);
+
+        public static async Task<TcpClient> GetConnectionAsync(string host, int port, int tamPool = 1, CancellationToken cancel = default)
         {
             var detalhesHost = await Dns.GetHostEntryAsync(host, cancel);
             var iPs = detalhesHost?.AddressList ?? [];
@@ -17,14 +20,39 @@ namespace MicroProxy.Models
             if (conexao != null)
             {
                 var pool = _pools.GetOrAdd(conexao, _ => new ConcurrentQueue<TcpClient>());
-                while (!pool.IsEmpty) { if (pool.TryDequeue(out var tcp) && tcp.Connected && IsAlive(tcp)) { return tcp; } }
+
+                while (!pool.IsEmpty)
+                {
+                    if (pool.TryDequeue(out var tcp) && tcp.Connected && IsAlive(tcp))
+                    {
+                        _ = ReservarConexoes(host, port, pool.Count + 1, tamPool, cancel);
+                        return tcp;
+                    }
+                }
             }
 
             using var cts = new CancellationTokenSource(25000);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancel, cts.Token);
-            var tcpNew = new TcpClient();
-            await tcpNew.ConnectAsync(host, port, linked.Token);
-            return tcpNew;
+
+            await ReservarConexoes(host, port, 0, tamPool, cts.Token);
+            return await GetConnectionAsync(host, port, tamPool, cts.Token);
+        }
+
+        private static async Task ReservarConexoes(string host, int port, int offset, int count, CancellationToken cancel = default)
+        {
+            List<Task> tarefas = [];
+
+            for (var i = offset; i < count; i++)
+            {
+                tarefas.Add(Task.Run(async () =>
+                {
+                    var tcpNew = new TcpClient();
+                    await tcpNew.ConnectAsync(host, port, cancel);
+                    SaveConnection(tcpNew);
+                }, cancel));
+            }
+
+            if (tarefas.Count != 0) { await Task.WhenAny(tarefas); }
         }
 
         public static void SaveConnection(TcpClient tcp)
