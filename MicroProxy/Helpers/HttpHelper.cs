@@ -81,11 +81,10 @@ namespace MicroProxy.Helpers
         public static Stream Extrair(this Stream stream, out string? codecUsado, string? tipoConteudo = null, string? codecConteudo = null)
             => stream.ProcessarCompactacao(CompressionMode.Decompress, out codecUsado, tipoConteudo, codecConteudo);
 
-        public static Stream ProcessarCompactacao<T>(this Stream stream, T compressionMode, string? tipoConteudo = null, string? codecConteudo = null)
-            => ProcessarCompactacao(stream, (dynamic)compressionMode!, out string? _, tipoConteudo, codecConteudo);
+        public static Stream ProcessarCompactacao(this Stream stream, dynamic compressionMode, string? tipoConteudo = null, string? codecConteudo = null)
+            => ProcessarCompactacao(stream, compressionMode, out string? _, tipoConteudo, codecConteudo);
 
-        public static Stream ProcessarCompactacao<T>(this Stream stream, T compressionMode, out string? codecUsado, string? tipoConteudo = null, string? codecConteudo = null)
-            where T : Enum
+        public static Stream ProcessarCompactacao(this Stream stream, dynamic compressionMode, out string? codecUsado, string? tipoConteudo = null, string? codecConteudo = null)
         {
             if (compressionMode is not CompressionLevel && compressionMode is not CompressionMode) { throw new ArgumentException("Argumento inválido", nameof(compressionMode)); }
 
@@ -97,28 +96,41 @@ namespace MicroProxy.Helpers
 
                 if (codecConteudo != null)
                 {
-                    dynamic cm = compressionMode;
-                    Stream pacote = stream;
-                    var comprimir = compressionMode is CompressionLevel;
+                    Stream pacote;
                     var memoria = new MemoryStream();
-                    var streamUsado = comprimir ? memoria : stream;
 
-                    switch (codecConteudo.ToLower())
+                    codecUsado = null;
+
+                    if (compressionMode is CompressionLevel cl)
                     {
-                        case "brotli" or "br": pacote = new BrotliStream(streamUsado, cm); break;
-                        case "gzip" or "g" or "gz": pacote = new GZipStream(streamUsado, cm); break;
-                        case "deflate" or "d": pacote = new DeflateStream(streamUsado, cm); break;
-                        case "zlib" or "z" or "zl" or "zstd": pacote = new ZLibStream(streamUsado, cm); break;
+                        switch (codecConteudo.ToLower())
+                        {
+                            case "brotli" or "br": pacote = new BrotliStream(memoria, cl); break;
+                            case "gzip" or "g" or "gz": pacote = new GZipStream(memoria, cl); break;
+                            case "deflate" or "d": pacote = new DeflateStream(memoria, cl); break;
+                            case "zlib" or "z" or "zl" or "zstd": pacote = new ZLibStream(memoria, cl); break;
+                            default: memoria.Dispose(); return stream;
+                        }
+
+                        stream.CopyTo(pacote);
                     }
-
-                    codecUsado = pacote.GetType().Name[..^"Stream".Length];
-
-                    if (pacote != stream)
+                    else if (compressionMode is CompressionMode cm)
                     {
-                        if (comprimir) { stream.CopyTo(pacote); } else { pacote.CopyTo(memoria); }
-                        pacote.Flush(); memoria.Seek(0, SeekOrigin.Begin);
+                        switch (codecConteudo.ToLower())
+                        {
+                            case "brotli" or "br": pacote = new BrotliStream(stream, cm); break;
+                            case "gzip" or "g" or "gz": pacote = new GZipStream(stream, cm); break;
+                            case "deflate" or "d": pacote = new DeflateStream(stream, cm); break;
+                            case "zlib" or "z" or "zl" or "zstd": pacote = new ZLibStream(stream, cm); break;
+                            default: memoria.Dispose(); return stream;
+                        }
+
+                        pacote.CopyTo(memoria);
                     }
                     else { memoria.Dispose(); return stream; }
+
+                    codecUsado = pacote.GetType().Name[..^"Stream".Length];
+                    pacote.Flush(); memoria.Flush(); memoria.Seek(0, SeekOrigin.Begin);
 
                     return memoria;
                 }

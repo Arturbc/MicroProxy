@@ -31,7 +31,7 @@ namespace MicroProxy.Models
                 }
             }
 
-            using var cts = new CancellationTokenSource(25000);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancel, cts.Token);
 
             await ReservarConexoes(host, port, 0, tamPool, cts.Token);

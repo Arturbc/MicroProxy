@@ -129,9 +129,10 @@ namespace MicroProxy.Models
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(1000).Token, context.RequestAborted);
                 string[] req = LerCabecalhoPacote(body, Headers, cts.Token);
                 uri = new(req[1].Contains("://") || req[1].StartsWith('/') ? req[1] : "http://" + req[1], UriKind.RelativeOrAbsolute);
+                var splitPath = uri.OriginalString.Contains('?') ? uri.OriginalString.Split('?') : null;
                 Method = req[0];
-                Path = uri.IsAbsoluteUri ? uri.AbsolutePath : uri.OriginalString;
-                QueryString = new QueryString(uri.IsAbsoluteUri ? uri.Query : (uri.OriginalString.Contains('?') ? '?' + uri.OriginalString.Split('?')[1] : null));
+                Path = uri.IsAbsoluteUri ? uri.AbsolutePath : splitPath?[0] ?? uri.OriginalString;
+                QueryString = new QueryString(uri.IsAbsoluteUri ? uri.Query : (splitPath != null ? '?' + splitPath[1] : null));
                 Protocol = req[2];
                 Body = body.AtualizarBody(!methodsSemBody.Contains(Method), false);
             }
@@ -242,14 +243,15 @@ namespace MicroProxy.Models
             return stream;
         }
 
-        public async Task SendFileAsync(IFileInfo fileInfo, CancellationToken cancellationToken)
+        public async Task<Stream> SendFileAsync(IFileInfo fileInfo, CancellationToken cancellationToken)
         {
             var stream = fileInfo.CreateReadStream();
 
             if (Headers.ContentEncoding.Count == 0) { stream = ProcessarCodificacao(stream); }
-            using var streamEmUso = stream;
-            ContentLength = streamEmUso.Length;
-            await streamEmUso.CopyToAsync(Body, cancellationToken);
+            ContentLength = stream.Length;
+            await stream.CopyToAsync(Body, cancellationToken);
+            stream.Seek(0, SeekOrigin.Begin);
+            return stream;
         }
 
         public async Task<string?> SendFileAsync(string? pathDiretorio, string? pathArquivo, CancellationToken cancellationToken = default)
@@ -283,11 +285,8 @@ namespace MicroProxy.Models
                 var arquivo = pfp.GetFileInfo(pathArquivoUsado);
                 var provedor = new FileExtensionContentTypeProvider();
                 if (provedor.TryGetContentType(pathArquivo, out string? tipoConteudo)) { ContentType = tipoConteudo; }
-                await using var conteudoResposta = arquivo.CreateReadStream();
-                await SendFileAsync(arquivo, cancellationToken);
-                var resultado = await conteudoResposta.BodyAsStringAsync(tipoConteudo, Headers.ContentEncoding, cancellationToken);
-
-                return resultado;
+                using var conteudoResposta = await SendFileAsync(arquivo, cancellationToken);
+                return await conteudoResposta.BodyAsStringAsync(tipoConteudo, Headers.ContentEncoding, cancellationToken);
             }
 
             return null;
