@@ -126,8 +126,7 @@ namespace MicroProxy.Models
                 if (stream is not NetworkStream && stream is not SslStream) { throw new ArgumentException("O parâmetro é de tipo não suportado.", nameof(stream)); }
                 string[] methodsSemBody = [HttpMethods.Head, HttpMethods.Get, HttpMethods.Connect, HttpMethods.Delete, HttpMethods.Trace];
                 using var body = new BodyStream(stream, clientStream, this, true, false);
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(new CancellationTokenSource(1000).Token, context.RequestAborted);
-                string[] req = LerCabecalhoPacote(body, Headers, cts.Token);
+                string[] req = LerCabecalhoPacote(body, Headers, context.RequestAborted);
                 uri = new(req[1].Contains("://") || req[1].StartsWith('/') ? req[1] : "http://" + req[1], UriKind.RelativeOrAbsolute);
                 var splitPath = uri.OriginalString.Contains('?') ? uri.OriginalString.Split('?') : null;
                 Method = req[0];

@@ -190,10 +190,10 @@ namespace MicroProxy.Models
         public Dictionary<string, string?[]>? RequestHeadersAdicionais { get => _requestHeadersAdicionais; set => _requestHeadersAdicionais ??= value; }
         public Dictionary<string, string?[]>? ResponseHeadersAdicionais { get => _responseHeadersAdicionais; set => _responseHeadersAdicionais ??= value; }
         public bool SemDelay { get => _semDelay ?? false; set => _semDelay ??= value; }
-        public int PoolConexoes { get => _poolConexoes ?? 0; set => _poolConexoes ??= value; }
+        public int PoolConexoes { get => _poolConexoes ?? 1; set => _poolConexoes ??= value; }
         public int BufferReq { get => _bufferReq ?? 0; set => _bufferReq ??= value; }
         public int BufferResp { get => _bufferResp ?? 0; set => _bufferResp ??= value; }
-        public int SegundosTempoMax { get => _segundosTempoMax ?? 0; set => _segundosTempoMax = value; }
+        public int SegundosTempoMax { get => _segundosTempoMax ?? 100; set => _segundosTempoMax = value; }
         public string? ExePath { get => _exePath; set => _exePath ??= !string.IsNullOrEmpty(value) ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePath; }
         public string? ExeArgumentos { get => _exeArgumentos; set => _exeArgumentos ??= !string.IsNullOrEmpty(value) ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exeArgumentos; }
         public string? ExePathDiretorio { get => _exePathDiretorio; set => _exePathDiretorio ??= !string.IsNullOrEmpty(value) ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePathDiretorio; }
@@ -303,24 +303,23 @@ namespace MicroProxy.Models
         {
             if (headersAdicionais != null)
             {
-                string[] keysCoringa = ["", "*"];
+                var sc = StringComparison.InvariantCultureIgnoreCase;
+                string[] keysCoringa = ["", "*", "^"];
                 headersAdicionais = headersAdicionais.Where(v => v.Value.Length > 0).ToDictionary();
 
-                foreach (var header in headersOriginais.Where(h => headersAdicionais.Any(ha => FlagChaveSubstRegex().Replace(ha.Key, "") == h.Key || keysCoringa.Contains(ha.Key))))
+                foreach (var header in headersOriginais.Where(h => headersAdicionais.Any(ha => keysCoringa.Any(kc => ha.Key.Equals(kc, sc) || ha.Key.Equals(h.Key + kc, sc)))))
                 {
                     List<string?> valores = [];
-                    var listaHeaders = headersAdicionais.Where(h => h.Key.Equals(header.Key, StringComparison.InvariantCultureIgnoreCase) || h.Key == "").ToDictionary();
-                    var listaHeadersSubstitutos = headersAdicionais.Where(h => (FlagChaveSubstRegex().Replace(h.Key, "").Equals(header.Key, StringComparison.InvariantCultureIgnoreCase)
-                            && !h.Key.Equals(header.Key, StringComparison.InvariantCultureIgnoreCase)) || h.Key == "*")
-                        .ToDictionary(h => FlagChaveSubstRegex().Replace(h.Key, ""), h => h.Value.Where(v => v != null).Select(v => v!.ProcessarStringSubstituicao(this)).ToArray());
+                    var listaHeaders = headersAdicionais.Where(h => h.Key.Equals(header.Key, sc) || h.Key == "").ToDictionary();
+                    var listaHeadersSubstitutos = headersAdicionais.Where(h => h.Key.Equals(header.Key + '*', sc) || h.Key == "*")
+                        .ToDictionary(h => h.Key.TrimEnd([.. keysCoringa.SelectMany(k => k)]),
+                            h => h.Value.Where(v => v != null).Select(v => v!.ProcessarStringSubstituicao(this)).ToArray());
+                    var listaHeadersRemover = headersAdicionais.Where(h => h.Key.Equals(header.Key + '^', sc) || h.Key == "^")
+                        .ToDictionary(h => h.Key.TrimEnd([.. keysCoringa.SelectMany(k => k)]),
+                            h => h.Value.Where(v => v != null).Select(v => v!.ProcessarStringSubstituicao(this)).ToArray());
 
                     if (listaHeaders.Count(l => l.Key != "") < listaHeadersSubstitutos.Count(l => l.Key != ""))
-                    {
-                        if (listaHeadersSubstitutos.TryGetValue(header.Key, out var headerValores))
-                        {
-                            headersOriginais[header.Key] = headerValores;
-                        }
-                    }
+                    { if (listaHeadersSubstitutos.TryGetValue(header.Key, out var headerValores)) { headersOriginais[header.Key] = headerValores; } }
                     else
                     {
                         bool substituirValores = false;
@@ -333,7 +332,6 @@ namespace MicroProxy.Models
 
                             foreach (var headerAdicional in listaHeaders)
                             {
-
                                 if (listaHeadersSubstitutos.TryGetValue(headerAdicional.Key, out var valoresHeaderSubs))
                                 {
                                     substituirValores = true;
@@ -348,9 +346,7 @@ namespace MicroProxy.Models
                                         if (valido)
                                         {
                                             if (valoresHeaderSubs.Length == headerAdicional.Value.Length)
-                                            {
-                                                valorTemp = substRegex.Replace(valorTemp!, valoresHeaderSubs[i]);
-                                            }
+                                            { valorTemp = substRegex.Replace(valorTemp!, valoresHeaderSubs[i]); }
                                             else
                                             {
                                                 string valorSubstitudo = valoresHeaderSubs.OrderByDescending(v =>
@@ -359,10 +355,7 @@ namespace MicroProxy.Models
                                                         char charSeparadorPrincipal = separadores.OrderByDescending(s => separadores.Count(sc => sc.Value == s.Value))
                                                             .FirstOrDefault()?.Value.First() ?? '\0';
 
-                                                        if (charSeparadorPrincipal == '\0')
-                                                        {
-                                                            return 0;
-                                                        }
+                                                        if (charSeparadorPrincipal == '\0') { return 0; }
 
                                                         return Math.Abs(v.Split(charSeparadorPrincipal).Length - valorTemp!.Split(charSeparadorPrincipal).Length);
                                                     }).ThenBy(v => Math.Abs(v.Length - valorHeader.Length)).ThenBy(v => v.Length).First();
@@ -376,38 +369,29 @@ namespace MicroProxy.Models
                                         i++;
                                     }
                                 }
-                                else
-                                {
-                                    valorTemp = valorTemp?.ProcessarStringSubstituicao(this, true);
-                                }
+                                else { valorTemp = valorTemp?.ProcessarStringSubstituicao(this, true); }
 
-                                valores = [.. valores.Append(valorTemp)];
+                                valores.Add(valorTemp);
                             }
                         }
 
-                        headersOriginais[header.Key] = [.. substituirValores ? valores : headersOriginais[header.Key].Union(valores)];
+                        valores.RemoveAll(v => v == null || listaHeadersRemover.Values.SelectMany(r => r).Select(r => new Regex(r).Match(v)).Any(m => m.Success));
+                        if (valores.Count != 0) { headersOriginais[header.Key] = [.. substituirValores ? valores : headersOriginais[header.Key].Union(valores)]; }
+                        else { headersOriginais.Remove(header.Key); }
                     }
                 }
 
-                foreach (var header in headersAdicionais.Where(h => !keysCoringa.Contains(h.Key) && !FlagChaveSubstRegex().IsMatch(h.Key)
-                    && !headersAdicionais.Any(ha => FlagChaveSubstRegex().Replace(ha.Key, "") == h.Key && ha.Key != h.Key) && !headersOriginais.ContainsKey(h.Key)))
+                foreach (var header in headersAdicionais.Where(h => !h.Key.Equals("") && !keysCoringa.Any(k => !k.Equals("") && h.Key.EndsWith(k))
+                    && !headersOriginais.ContainsKey(h.Key) && !headersAdicionais.Any(ha => ha.Key.Equals(h.Key, sc) && !ha.Key.Equals(h.Key, sc))))
                 {
                     List<string?> valores = [];
-
-                    foreach (var valor in header.Value)
-                    {
-                        valores.Add(valor?.ProcessarStringSubstituicao(this));
-                    }
-
+                    foreach (var valor in header.Value) { valores.Add(valor?.ProcessarStringSubstituicao(this)); }
                     headersOriginais.Add(header.Key, [.. valores]);
                 }
             }
 
             return headersOriginais;
         }
-
-        [GeneratedRegex(@"\*([\w#-]+ *= *[\w#-]+(?=(?: *, *)|(?:$)))?$")]
-        private static partial Regex FlagChaveSubstRegex();
 
         [GeneratedRegex(@"(?:(?<!^[a-zA-Z]):)|(?:(?<!(?:^\\?)|(?:\w+[:%])|[\w.~])[\\/](?!%?\w))|[*?""<>|]")]
         public static partial Regex CharsInvalidosPathArquivoRegex();

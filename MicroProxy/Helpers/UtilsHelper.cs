@@ -293,7 +293,8 @@ namespace MicroProxy.Models
                                                 {
                                                     using var memoryReq = new MemoryStream();
                                                     Dictionary<string, StringValues> headersReq = request.Headers.Where(hr => !HeadersProibidos.Union(HeadersProibidosReq)
-                                                            .Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase))).ToDictionary();
+                                                            .Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
+                                                        .ToDictionary(StringComparer.OrdinalIgnoreCase);
 
                                                     headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
                                                     site.ReqHeaders = JsonConvert.SerializeObject(headersReq.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
@@ -332,7 +333,7 @@ namespace MicroProxy.Models
                                                 var serverResponse = new HttpResponseFromListener(serverStreamEmUso, serverStream, context, true);
                                                 Dictionary<string, StringValues> headersResposta = serverResponse.Headers.ToDictionary(h => h.Key, h => h.Value)
                                                         .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-                                                        .ToDictionary();
+                                                        .ToDictionary(StringComparer.OrdinalIgnoreCase);
 
                                                 response.StatusCode = serverResponse.StatusCode;
 

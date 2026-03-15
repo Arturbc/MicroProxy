@@ -106,6 +106,7 @@ foreach (var (listener, certificado) in tcpListeners)
                 IPEndPoint? ipLocal = null;
                 using Task? tarefaCheck = Task.Run(async () =>
                 {
+                    ++tarefas;
                     await Task.Delay(1000, ctsAbortLink.Token);
                     while (clientStream.Socket.Connected && !ctsAbortLink.IsCancellationRequested
                             && (!clientStream.Socket.Poll(1000, SelectMode.SelectRead) || clientStream.DataAvailable))
@@ -117,7 +118,7 @@ foreach (var (listener, certificado) in tcpListeners)
                 {
                     ipRemoto = (IPEndPoint)clientStreamTask.Socket.RemoteEndPoint!;
                     ipLocal = (IPEndPoint)clientStreamTask.Socket.LocalEndPoint!;
-                    ExibirLog($"Cliente {ipRemoto} conectado a {ipLocal}... (Conexões ativas: {++tarefas})");
+                    ExibirLog($"Cliente {ipRemoto} conectado a {ipLocal}... (Conexões ativas: {tarefas})");
                     using var sslStream = new SslStream(clientStreamTask, false, (sender, cert, chain, errors) => true);
                     using var streamEmUso = certificado == null ? (Stream)clientStreamTask : sslStream;
 
@@ -157,8 +158,14 @@ foreach (var (listener, certificado) in tcpListeners)
                     catch { }
                 }
 
-                ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {--tarefas})");
-                ExibirLog($"URL de conexão desconectada: {url}");
+                --tarefas;
+
+                try
+                {
+                    ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {tarefas})");
+                    ExibirLog($"URL de conexão desconectada: {url}");
+                }
+                catch { }
                 ctsAbort.Cancel();
                 tarefaCheck?.Wait();
             });
