@@ -292,22 +292,24 @@ namespace MicroProxy.Models
             return null;
         }
 
-        public async Task CompleteAsync(TcpClient? tcpClient = null)
+        public async Task CompleteAsync()
         {
             try
             {
-                if (tcpClient != null)
-                {
-                    if (tcpClient.Client != _clientStream.Socket) { throw new ArgumentException("O parâmetro não pertence ao contexto...", nameof(tcpClient)); }
-                    if (!ConnectionPool.IsAlive(tcpClient)) { await _clientStream.DisposeAsync(); }
-                    else { ConnectionPool.SaveConnection(tcpClient); }
-                }
-                else
-                {
-                    var cabecalho = Body.MontarCabecalho();
-                    if (!string.IsNullOrEmpty(cabecalho)) { await Body.BaseStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), HttpContext.RequestAborted); }
-                    try { await Body.FlushAsync(); } catch { }
-                }
+                var cabecalho = Body.MontarCabecalho();
+                if (!string.IsNullOrEmpty(cabecalho)) { await Body.BaseStream.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), HttpContext.RequestAborted); }
+                try { await Body.FlushAsync(); } catch { }
+            }
+            catch { }
+        }
+
+        public async Task CompleteAsync(TcpClient tcpClient)
+        {
+            try
+            {
+                if (tcpClient.Client != _clientStream.Socket) { throw new ArgumentException("O parâmetro não pertence ao contexto...", nameof(tcpClient)); }
+                if (!ConnectionPool.IsAlive(tcpClient)) { await _clientStream.DisposeAsync(); }
+                else { ConnectionPool.SaveConnection(tcpClient); }
             }
             catch { }
         }
@@ -382,7 +384,7 @@ namespace MicroProxy.Models
             int totalRead = 0;
             bool bufferNovo = _buffer.Length == _buffer.Position;
             bool loopAtivo;
-            var internalBuffer = new byte[_clientStream.Socket.ReceiveBufferSize];
+            var internalBuffer = new byte[Math.Max(_clientStream.Socket.ReceiveBufferSize, count + offset)];
             int posicaoAtualBuffer = (int)_buffer.Position;
             var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(_httpPacote.Timeout)).Token);
 

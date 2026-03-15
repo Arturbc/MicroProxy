@@ -7,6 +7,7 @@ namespace MicroProxy.Models
     public static class ConnectionPool
     {
         static readonly ConcurrentDictionary<string, ConcurrentQueue<TcpClient>> _pools = [];
+        static readonly ConcurrentDictionary<string, List<Task>> _tarefas = [];
 
         public static Task<TcpClient> GetConnectionAsync(string host, int port, CancellationToken cancel = default)
             => GetConnectionAsync(host, port, 1, cancel);
@@ -33,16 +34,19 @@ namespace MicroProxy.Models
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancel, cts.Token);
-
-            await ReservarConexoes(host, port, 0, tamPool, cts.Token);
-            return await GetConnectionAsync(host, port, tamPool, cts.Token);
+            var tcpNew = new TcpClient();
+            _ = ReservarConexoes(host, port, 0, tamPool - 1, cancel);
+            await tcpNew.ConnectAsync(host, port, cts.Token);
+            return tcpNew;
         }
 
         private static async Task ReservarConexoes(string host, int port, int offset, int count, CancellationToken cancel = default)
         {
-            List<Task> tarefas = [];
+            var tarefas = _tarefas.GetOrAdd($"{host}:{port}", _ => []);
 
-            for (var i = offset; i < count; i++)
+            tarefas.RemoveAll(t => t.IsCompleted);
+
+            for (var i = offset + tarefas.Count; i < count; i++)
             {
                 tarefas.Add(Task.Run(async () =>
                 {
@@ -52,7 +56,12 @@ namespace MicroProxy.Models
                 }, cancel));
             }
 
-            if (tarefas.Count != 0) { await Task.WhenAny(tarefas); }
+            do
+            {
+                await Task.Delay(10, cancel);
+                await Task.WhenAny(tarefas);
+                tarefas.RemoveAll(t => t.IsCompleted);
+            } while (tarefas.Count > 0 && !tarefas.Any(t => t.IsCompletedSuccessfully));
         }
 
         public static void SaveConnection(TcpClient tcp)
