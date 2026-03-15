@@ -327,8 +327,6 @@ namespace MicroProxy.Models
                                                     if (site.Exception != null) { throw new("Falha durante a requisição", site.Exception); }
                                                 }, context.RequestAborted));
 
-                                                tarefasAsync.Add(Task.Delay(1000));
-                                                await Task.WhenAny(tarefasAsync);
                                                 using var memoryResp = new MemoryStream();
                                                 var serverResponse = new HttpResponseFromListener(serverStreamEmUso, serverStream, context, true);
                                                 Dictionary<string, StringValues> headersResposta = serverResponse.Headers.ToDictionary(h => h.Key, h => h.Value)

@@ -67,7 +67,7 @@ namespace MicroProxy.Helpers
 
         public static string MontarHeadersCabecalhoPacote(IHeaderDictionary headers) => MontarHeadersCabecalhoPacote(headers.ToDictionary());
 
-        public static string MontarHeadersCabecalhoPacote(Dictionary<string, StringValues> headers) => string.Join("", headers.Select(h => $"{h.Key}: {h.Value}\r\n"));
+        public static string MontarHeadersCabecalhoPacote(Dictionary<string, StringValues> headers) => string.Join("", headers.SelectMany(h => h.Value.Select(v => $"{h.Key}: {v}\r\n")));
 
         public static Stream Compactar(this Stream stream, string? tipoConteudo = null, string? codecConteudo = null,
             CompressionLevel compressionLevel = CompressionLevel.Optimal) => stream.Compactar(out _, tipoConteudo, codecConteudo, compressionLevel);
