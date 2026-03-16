@@ -130,7 +130,7 @@ namespace MicroProxy.Models
         public string HorasCompletas => DataHoras.ToString("T");
 
         public int LimiteTempoPing { get => _limiteTempoPing ?? 500; set => _limiteTempoPing = value; }
-        public string[]? BindUrls { get => _bindDestinos; set => _bindDestinos ??= value != null && value.Length != 0 ? [.. value.Select(v => v.StartsWith("http", StringComparison.InvariantCultureIgnoreCase) ? v : $"http://{v}")] : null; }
+        public string[]? BindUrls { get => _bindDestinos; set => _bindDestinos ??= value != null && value.Length != 0 ? [.. value.Select(ExibirUrlAjustada)] : null; }
         public string UrlDestino
         {
             get

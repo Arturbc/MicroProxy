@@ -106,13 +106,14 @@ foreach (var (listener, certificado) in tcpListeners)
                 IPEndPoint? ipLocal = null;
                 using Task? tarefaCheck = Task.Run(async () =>
                 {
-                    ++tarefas;
                     await Task.Delay(1000, ctsAbortLink.Token);
                     while (clientStream.Socket.Connected && !ctsAbortLink.IsCancellationRequested
                             && (!clientStream.Socket.Poll(1000, SelectMode.SelectRead) || clientStream.DataAvailable))
                     { await Task.Delay(1000, ctsAbortLink.Token); }
                     try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { }
                 });
+
+                ++tarefas;
 
                 try
                 {

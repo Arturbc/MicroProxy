@@ -48,13 +48,15 @@ namespace MicroProxy.Models
 
         public static async Task ProcessarRequisicaoAsync(this HttpContextFromListener context, Configuracao configuracao)
         {
+            var sc = StringComparison.OrdinalIgnoreCase;
+            var scr = StringComparer.OrdinalIgnoreCase;
             List<Task> tarefasAsync = [];
             var request = context.Request;
             var response = context.Response;
             Uri urlAtual = new(request.GetDisplayUrl());
             Site? site = null;
             bool tratarUrl = !HttpMethods.IsGet(request.Method) || !Path.HasExtension(urlAtual.AbsolutePath) || configuracao.ExtensoesUrlNaoRecurso
-                .Any(e => e == "*" || e.Trim('.').Equals(Path.GetExtension(urlAtual.AbsolutePath).Trim('.'), StringComparison.InvariantCultureIgnoreCase));
+                .Any(e => e == "*" || e.Trim('.').Equals(Path.GetExtension(urlAtual.AbsolutePath).Trim('.'), sc));
 
             try
             {
@@ -75,10 +77,10 @@ namespace MicroProxy.Models
                 string? pathUrlAnterior = pathUrlAtual;
                 Site[] sites = [];
 
-                while (sites.Length == 0 && (pathUrlAnterior?.Equals(pathUrlAtual, StringComparison.InvariantCultureIgnoreCase) ?? (pathUrlAnterior == pathUrlAtual)))
+                while (sites.Length == 0 && (pathUrlAnterior?.Equals(pathUrlAtual, sc) ?? (pathUrlAnterior == pathUrlAtual)))
                 {
                     if (pathUrlAtual != null && !CharReservadosUrlRegex().Replace(urlAtual.AbsolutePath, "/")
-                            .StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/"), StringComparison.InvariantCultureIgnoreCase)
+                            .StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/"), sc)
                         && tratarUrl) { pathUrlAtual = null; }
 
                     sites = [.. configuracao.Sites.Where(s =>
@@ -100,22 +102,22 @@ namespace MicroProxy.Models
                                 string pathUrlDestino = urlDestino.AbsolutePath.TrimEnd('/');
 
                                 if (pathUrlAtual != null) { i = iMin; }
-                                if ($"{urlDestino.Scheme}://{urlDestino.Authority}{pathUrlDestino}".Equals($"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}", StringComparison.InvariantCultureIgnoreCase)
+                                if ($"{urlDestino.Scheme}://{urlDestino.Authority}{pathUrlDestino}".Equals($"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}", sc)
                                     || (!configuracao.Sites.Any(ss => ss.BindUrls != null
-                                            && ss.BindUrls.Contains($"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}", StringComparer.InvariantCultureIgnoreCase))
-                                        && $"{urlDestino.Authority}{pathUrlDestino}".Equals($"{urlAtual.Authority}{partePathUrlAtual}", StringComparison.InvariantCultureIgnoreCase))
+                                            && ss.BindUrls.Contains($"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}", scr))
+                                        && $"{urlDestino.Authority}{pathUrlDestino}".Equals($"{urlAtual.Authority}{partePathUrlAtual}", sc))
                                     || (!configuracao.Sites.Any(ss => ss.BindUrls != null
-                                            && ss.BindUrls.Select(bu => new Uri(bu).Authority).Contains($"{urlAtual.Authority}{partePathUrlAtual}", StringComparer.InvariantCultureIgnoreCase))
-                                        && $"{urlDestino.Host}{pathUrlDestino}".Equals($"{urlAtual.Host}{partePathUrlAtual}", StringComparison.InvariantCultureIgnoreCase))
+                                            && ss.BindUrls.Select(bu => new Uri(bu).Authority).Contains($"{urlAtual.Authority}{partePathUrlAtual}", scr))
+                                        && $"{urlDestino.Host}{pathUrlDestino}".Equals($"{urlAtual.Host}{partePathUrlAtual}", sc))
                                     )
                                 {
                                     if (melhorBind == null || pathUrlDestino.Length > melhorBind.AbsolutePath.Length
-                                        || !CharReservadosUrlRegex().Replace(melhorBind.AbsolutePath, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), StringComparison.InvariantCultureIgnoreCase))
+                                        || !CharReservadosUrlRegex().Replace(melhorBind.AbsolutePath, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), sc))
                                     {
                                         melhorBind = urlDestino;
                                         if (pathUrlDestino != "" && pathUrlAnterior != pathUrlDestino) { pathUrlAtual = melhorBind.AbsolutePath; }
                                     }
-                                    if (melhorBind != null && melhorBind.OriginalString.Equals(urlDestino.OriginalString, StringComparison.InvariantCultureIgnoreCase)){ return true; }
+                                    if (melhorBind != null && melhorBind.OriginalString.Equals(urlDestino.OriginalString, sc)){ return true; }
                                 }
                             }
 
@@ -128,14 +130,14 @@ namespace MicroProxy.Models
                 }
 
                 site = sites.OrderBy(s => s.BindUrls == null)
-                    .ThenByDescending(s => s.Methods.Contains(request.Method, StringComparer.InvariantCultureIgnoreCase))
+                    .ThenByDescending(s => s.Methods.Contains(request.Method, scr))
                     .ThenBy(s => s.Methods.Length).ThenBy(s => string.Join(',', s.Methods))
                     .FirstOrDefault(s => s.BindUrls == null || s.BindUrls.Any(b => melhorBind != null && new Uri(b).OriginalString.Equals(melhorBind.OriginalString)));
 
                 string pathUrlCliente = request.GetEncodedPathAndQuery();
                 string[] methodsAceitos = [request.Method, "*"];
 
-                if (site == null || !site.Methods.Any(m => methodsAceitos.Contains(m, StringComparer.InvariantCultureIgnoreCase)))
+                if (site == null || !site.Methods.Any(m => methodsAceitos.Contains(m, scr)))
                 {
                     if (urlAtual.AbsolutePath.TrimEnd('/') != "" && pathUrlAtual != null)
                     {
@@ -174,7 +176,7 @@ namespace MicroProxy.Models
                                 pathUrlDestino = urlDestino.AbsolutePath;
 
                                 if (pathUrlAtualTemp != "" && CharReservadosUrlRegex().Replace(pathUrlAtualTemp, "/")
-                                    .StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), StringComparison.InvariantCultureIgnoreCase))
+                                    .StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), sc))
                                 {
                                     var charsReservadosUrl = CharReservadosUrlRegex().Matches(pathUrlAtualTemp).Where(m => m.Value != "").ToArray();
 
@@ -185,8 +187,7 @@ namespace MicroProxy.Models
                                 }
                             }
 
-                            if (pathUrlAtual != null && !CharReservadosUrlRegex().Replace(pathUrlAtualTemp, "/")
-                                    .StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/"), StringComparison.InvariantCultureIgnoreCase))
+                            if (pathUrlAtual != null && !CharReservadosUrlRegex().Replace(pathUrlAtualTemp, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/"), sc))
                             { pathUrlAtualTemp = $"{pathUrlAtual}{pathUrlAtualTemp}"; }
                             else if (!pathUrlAtualTemp.StartsWith('/')) { pathUrlAtualTemp = '/' + pathUrlAtualTemp; }
                         }
@@ -204,7 +205,7 @@ namespace MicroProxy.Models
                                 {
                                     if ((pathUrlAnterior?.Equals(pathUrlAtual, StringComparison.InvariantCultureIgnoreCase) ?? pathUrlAnterior == pathUrlAtual)
                                         && ((absolutePathUrlOrigemRedirect == null
-                                             && CharReservadosUrlRegex().Replace(pathUrlCliente, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), StringComparison.InvariantCultureIgnoreCase))
+                                             && CharReservadosUrlRegex().Replace(pathUrlCliente, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), sc))
                                             || (absolutePathUrlOrigemRedirect != null
                                                 && (CharReservadosUrlRegex().Replace(pathUrlAtualTemp, "/").StartsWith(CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/"), StringComparison.InvariantCultureIgnoreCase)
                                                     || CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlDestino, "/"), StringComparison.InvariantCultureIgnoreCase)))))
@@ -213,7 +214,7 @@ namespace MicroProxy.Models
                                 }
                                 else if (pathUrlAtual != null && pathUrlAnterior != null
                                         && (absolutePathUrlOrigemRedirect == null
-                                            || CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/"), StringComparison.InvariantCultureIgnoreCase)))
+                                            || CharReservadosUrlRegex().Replace(absolutePathUrlOrigemRedirect, "/").StartsWith(CharReservadosUrlRegex().Replace(pathUrlAtual, "/"), sc)))
                                 { pathUrlDestino = $"{pathUrlAtual}{pathUrlCliente}"; }
                             }
                         }
@@ -257,7 +258,7 @@ namespace MicroProxy.Models
                                     if (site.BufferResp > 0) { tcpClient.SendBufferSize = site.BufferResp; }
                                     var serverStream = tcpClient.GetStream();
                                     var serverSslStream = new SslStream(serverStream);
-                                    var destinoHttps = urlDestino.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase);
+                                    var destinoHttps = urlDestino.Scheme.Equals("https", sc);
                                     var serverStreamEmUso = destinoHttps ? (Stream)serverSslStream : serverStream;
 
                                     if (destinoHttps)
@@ -270,12 +271,13 @@ namespace MicroProxy.Models
 
                                     try
                                     {
-                                        if (HttpMethods.IsConnect(request.Method))
+                                        if (HttpMethods.IsConnect(request.Method) && site.UrlsDestinos.Length == 0)
                                         {
+                                            using var streamProxy = serverStreamEmUso;
                                             response.Headers.Connection = "close";
                                             await response.CompleteAsync();
-                                            tarefasAsync.Add(request.Body.BaseStream.CopyToAsync(serverStreamEmUso, context.RequestAborted));
-                                            tarefasAsync.Add(serverStreamEmUso.CopyToAsync(response.Body.BaseStream, context.RequestAborted));
+                                            tarefasAsync.Add(request.Body.BaseStream.CopyToAsync(streamProxy, context.RequestAborted));
+                                            tarefasAsync.Add(streamProxy.CopyToAsync(response.Body.BaseStream, context.RequestAborted));
                                             await Task.WhenAny(tarefasAsync);
                                         }
                                         else
@@ -293,11 +295,11 @@ namespace MicroProxy.Models
                                                 {
                                                     using var memoryReq = new MemoryStream();
                                                     Dictionary<string, StringValues> headersReq = request.Headers.Where(hr => !HeadersProibidos.Union(HeadersProibidosReq)
-                                                            .Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-                                                        .ToDictionary(StringComparer.OrdinalIgnoreCase);
+                                                            .Any(hp => hr.Key.Equals(hp, sc))).ToDictionary(scr);
 
                                                     headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
-                                                    site.ReqHeaders = JsonConvert.SerializeObject(headersReq.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
+                                                    site.ReqHeaders = JsonConvert.SerializeObject(headersReq.OrderBy(h => h.Key).ToDictionary(scr), Formatting.None,
+                                                        new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
                                                     var cabecalho = MontarCabecalhoPacote(request.Protocol, site.PathAndQueryAtual, request.Method, headersReq);
 
                                                     if (request.Body.CanRead) { request.EnableBuffering(); if (request.Body.CanSeek) { request.Body.Seek(0, SeekOrigin.Begin); } }
@@ -329,15 +331,14 @@ namespace MicroProxy.Models
 
                                                 using var memoryResp = new MemoryStream();
                                                 var serverResponse = new HttpResponseFromListener(serverStreamEmUso, serverStream, context, true);
-                                                Dictionary<string, StringValues> headersResposta = serverResponse.Headers.ToDictionary(h => h.Key, h => h.Value)
-                                                        .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, StringComparison.CurrentCultureIgnoreCase)))
-                                                        .ToDictionary(StringComparer.OrdinalIgnoreCase);
+                                                Dictionary<string, StringValues> headersResposta = serverResponse.Headers.ToDictionary(h => h.Key, h => h.Value, scr)
+                                                        .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, sc))).ToDictionary(scr);
 
                                                 response.StatusCode = serverResponse.StatusCode;
 
                                                 if (site.UrlsDestinos.Length <= 1 || response.StatusCode < StatusCodes.Status400BadRequest)
                                                 {
-                                                    site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(),
+                                                    site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(scr),
                                                         Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
                                                     headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
 
@@ -355,6 +356,9 @@ namespace MicroProxy.Models
                                                         }
                                                         catch (Exception ex) { site.Exception ??= ex; }
 
+                                                        try { await Task.WhenAny(tarefasAsync); context.RequestAborted.ThrowIfCancellationRequested(); }
+                                                        catch (Exception ex) { site.Exception ??= ex; await serverStreamEmUso.DisposeAsync(); }
+
                                                         await serverResponse.CompleteAsync(tcpClient);
                                                         await memoryResp.FlushAsync();
                                                         try
@@ -369,14 +373,17 @@ namespace MicroProxy.Models
                                                             using StreamReader readerResp = new(memoryResp);
                                                             site.RespBody = await readerResp.ReadToEndAsync();
                                                         }
-                                                        await Task.WhenAny(tarefasAsync);
 
                                                         if (site.Exception != null)
                                                         {
-                                                            if (!response.HasStarted && response.StatusCode < StatusCodes.Status400BadRequest) { response.StatusCode = StatusCodes.Status500InternalServerError; }
+                                                            if (!response.HasStarted && response.StatusCode < StatusCodes.Status400BadRequest)
+                                                            { response.StatusCode = StatusCodes.Status500InternalServerError; }
 
                                                             if (site.UrlsDestinos.Length <= 1 || response.HasStarted)
-                                                            { throw new Exception(response.HasStarted ? "A requisição foi encerrada." : "Nenhuma alternativa de conexão respondeu.", site.Exception); }
+                                                            {
+                                                                throw new Exception(response.HasStarted ? "A requisição foi encerrada." : "Nenhuma alternativa de conexão respondeu.",
+                                                                    site.Exception);
+                                                            }
                                                         }
                                                     }
                                                     else
@@ -404,12 +411,12 @@ namespace MicroProxy.Models
                                     catch (Exception ex)
                                     {
                                         if (response.StatusCode < StatusCodes.Status400BadRequest) { response.StatusCode = StatusCodes.Status502BadGateway; }
-                                        site.Exception = ex;
+                                        site.Exception = site.Exception != null ? new AggregateException(site.Exception, ex) : ex;
                                     }
                                 }
                             }
                         }
-                    } while (site.UrlsDestinos.Length > 1 && response.StatusCode >= StatusCodes.Status400BadRequest);
+                    } while (!context.RequestAborted.IsCancellationRequested && site.UrlsDestinos.Length > 1 && response.StatusCode >= StatusCodes.Status400BadRequest);
                 }
 
                 PathUrlAtual = pathUrlAtual;
@@ -456,7 +463,8 @@ namespace MicroProxy.Models
                     if (tratarUrl || !log.Value.IgnorarArquivosEstaticos)
                     {
                         string pathLog = ProcessarPath(Site.CharsInvalidosPathArquivoRegex().Replace(log.Value.Path.ProcessarStringSubstituicao(site), "_"));
-                        string nomeArquivo = Site.CharsInvalidosPathArquivoRegex().Replace(log.Key.ProcessarStringSubstituicao(site), "_").Trim('/', '\\').Replace("/", "_").Replace(@"\", "_");
+                        string nomeArquivo = Site.CharsInvalidosPathArquivoRegex().Replace(log.Key.ProcessarStringSubstituicao(site), "_").Trim('/', '\\').Replace("/", "_")
+                            .Replace(@"\", "_");
 
                         if (pathLog != "")
                         {
