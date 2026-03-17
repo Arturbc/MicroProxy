@@ -1,5 +1,6 @@
 using MicroProxy.Extensions;
 using MicroProxy.Models;
+using Microsoft.AspNetCore.DataProtection;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -12,18 +13,23 @@ using static MicroProxy.Models.Configuracao;
 using static MicroProxy.Models.Site;
 
 Configuracao configuracao = new();
+SessionOptions? sessionOptions = new()
+{
+    IdleTimeout = configuracao.MinutosValidadeCookie == 0 ? TimeSpan.MaxValue : TimeSpan.FromDays(configuracao.MinutosValidadeCookie),
+    Cookie = new() { Name = NOME_COOKIE, IsEssential = true }
+};
 string[]? codecConteudo = configuracao.CompressionResponse?.Split(',', StringSplitOptions.TrimEntries);
-
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddSingleton<IHttpContextFromListenerAccessor, HttpContextFromListenerAccessor>();
-builder.Services.AddDistributedMemoryCache();
-builder.Services.AddSession(options =>
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo("./keys"))
+    .SetApplicationName(NOME_COOKIE);
+builder.Services.AddScoped(provider =>
 {
-    options.IdleTimeout = configuracao.MinutosValidadeCookie == 0 ? TimeSpan.MaxValue : TimeSpan.FromDays(configuracao.MinutosValidadeCookie);
-    options.Cookie.Name = NOME_COOKIE;
-    options.Cookie.IsEssential = true;
+    var protectorProvider = provider.GetRequiredService<IDataProtectionProvider>();
+    return protectorProvider.CreateProtector($"{NOME_COOKIE}.Session.v1");
 });
 
 var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS")?.Split(';').OrderBy(u => u.StartsWith("https", StringComparison.OrdinalIgnoreCase)).ToArray() ?? configuracao.Ips;
@@ -38,7 +44,7 @@ bool https = false;
 foreach (string url in urls)
 {
     var ipPorta = IpPortaRegex().Match(url);
-    Uri? uri = fonteUrlsConfig ? null : new Uri(url);
+    Uri? uri = fonteUrlsConfig ? null : new(url);
 
     if (uri != null && string.IsNullOrEmpty(certificadoStr) && uri.Scheme.Equals("https")) { certificadoStr = uri.Host; }
 
@@ -127,7 +133,8 @@ foreach (var (listener, certificado) in tcpListeners)
                     { await sslStream.AuthenticateAsServerAsync(certificado, configuracao.SolicitarCertificadoCliente, SslProtocols.Tls12 | SslProtocols.Tls13, false); }
 
                     using var scope = app.Services.CreateScope();
-                    using HttpContextFromListener context = new(streamEmUso, clientStreamTask, configuracao.CompressionResponse, ctsAbortLink.Token);
+                    var protector = scope.ServiceProvider.GetRequiredService<IDataProtector>();
+                    using HttpContextFromListener context = new(streamEmUso, clientStreamTask, sessionOptions, protector, configuracao.CompressionResponse, ctsAbortLink.Token);
                     httpContextStarted = true;
                     var accessor = (HttpContextFromListenerAccessor)scope.ServiceProvider.GetRequiredService<IHttpContextFromListenerAccessor>();
                     accessor.HttpContext = context;

@@ -361,6 +361,7 @@ namespace MicroProxy.Models
 
                                                         await serverResponse.CompleteAsync(tcpClient);
                                                         await memoryResp.FlushAsync();
+
                                                         try
                                                         {
                                                             using StreamReader readerResp = new(memoryResp.Extrair(response.Headers.ContentType, response.Headers.ContentEncoding));
@@ -377,7 +378,10 @@ namespace MicroProxy.Models
                                                         if (site.Exception != null)
                                                         {
                                                             if (!response.HasStarted && response.StatusCode < StatusCodes.Status400BadRequest)
-                                                            { response.StatusCode = StatusCodes.Status500InternalServerError; }
+                                                            {
+                                                                response.StatusCode = site.Exception.Contains(typeof(TimeoutException)) ?
+                                                                    StatusCodes.Status504GatewayTimeout : StatusCodes.Status500InternalServerError;
+                                                            }
 
                                                             if (site.UrlsDestinos.Length <= 1 || response.HasStarted)
                                                             {
@@ -405,12 +409,13 @@ namespace MicroProxy.Models
                                                 }
                                             }
                                         }
+
                                         await response.CompleteAsync();
                                         if (tarefasAsync.Count != 0) { await Task.WhenAny(tarefasAsync); }
                                     }
                                     catch (Exception ex)
                                     {
-                                        if (response.StatusCode < StatusCodes.Status400BadRequest) { response.StatusCode = StatusCodes.Status502BadGateway; }
+                                        if (!response.HasStarted && response.StatusCode < StatusCodes.Status400BadRequest) { response.StatusCode = StatusCodes.Status502BadGateway; }
                                         site.Exception = site.Exception != null ? new AggregateException(site.Exception, ex) : ex;
                                     }
                                 }
@@ -548,9 +553,6 @@ namespace MicroProxy.Models
 
             return valor;
         }
-
-        [GeneratedRegex($"(?<=(?:^|(?:; *))){NOME_COOKIE}[^;]+(?:(?:; *)|(?: *$))")]
-        private static partial Regex CookieMicroproxyRegex();
 
         [GeneratedRegex(@"##([^#]+)##")]
         private static partial Regex VariavelRegex();

@@ -1,15 +1,20 @@
 ﻿using MicroProxy.Extensions;
 using MicroProxy.Helpers;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
+using Newtonsoft.Json;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.RegularExpressions;
 using static MicroProxy.Helpers.HttpHelper;
 
 namespace MicroProxy.Models
@@ -43,23 +48,73 @@ namespace MicroProxy.Models
     public class HttpContextFromListener : IDisposable
     {
         public HttpContextFromListener(Stream stream, NetworkStream clientStream, CancellationToken cancellationToken = default)
-            : this(stream, clientStream, null, cancellationToken) { }
+            : this(stream, clientStream, null, null, cancellationToken) { }
 
-        public HttpContextFromListener(Stream stream, NetworkStream clientStream, string? codec, CancellationToken cancellationToken = default)
+        public HttpContextFromListener(Stream stream, NetworkStream clientStream, SessionOptions? sessionOptions, IDataProtector? protector,
+            CancellationToken cancellationToken = default) : this(stream, clientStream, sessionOptions, protector, null, cancellationToken) { }
+
+        public HttpContextFromListener(Stream stream, NetworkStream clientStream, SessionOptions? sessionOptions, IDataProtector? protector, string? codec,
+            CancellationToken cancellationToken = default)
         {
             Request = new(stream, clientStream, this);
             Response = new(stream, clientStream, this, codec);
-            Connection = new(clientStream.Socket,
-                stream is SslStream ssl && ssl.RemoteCertificate != null ? new X509Certificate2(ssl.RemoteCertificate) : null);
+            Connection = new(clientStream.Socket, stream is SslStream ssl && ssl.RemoteCertificate != null ? new X509Certificate2(ssl.RemoteCertificate) : null);
             RequestAborted = cancellationToken;
-        }
-        private bool disposedValue;
 
-        public ISession? Session { get; private set; }
+            if (sessionOptions != null)
+            {
+                var clientCookies = ParseCookies(Request.Headers.Cookie);
+                Request.Headers.Cookie = FiltrarCookie(sessionOptions.Cookie.Name);
+                var sessionCookie = clientCookies!.GetValueOrDefault(sessionOptions.Cookie.Name);
+                var sessionId = sessionCookie ?? GenerateSessionId();
+                Session = new SessionFromListener(protector ?? throw new InvalidOperationException(), sessionId, sessionCookie, sessionOptions, this);
+            }
+        }
+
+        private bool disposedValue;
+        public ISession? Session { get; }
         public HttpRequestFromListener Request { get; }
         public HttpResponseFromListener Response { get; }
         public CancellationToken RequestAborted { get; set; }
         public ConnectionInfoFromListener Connection { get; }
+
+        private StringValues FiltrarCookie(string? nome)
+        {
+            if (nome == null || Request.Headers.Cookie.DefaultIfEmpty() == null) { return Request.Headers.Cookie; }
+            return new Regex($"(?<=(?:^|(?:; *))){nome}[^;]+(?:(?:; *)|(?: *$))").Replace(Request.Headers.Cookie!, "");
+        }
+
+        private static Dictionary<string, string> ParseCookies(string? cookieHeader)
+        {
+            var cookies = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            if (string.IsNullOrEmpty(cookieHeader?.Trim())) { return cookies; }
+
+            foreach (var pair in cookieHeader.Split(';', StringSplitOptions.TrimEntries))
+            {
+                var eqIndex = pair.IndexOf('=');
+
+                if (eqIndex > 0)
+                {
+                    var key = pair[..eqIndex].Trim();
+                    var value = pair[(eqIndex + 1)..].Trim().Trim('"');
+
+                    if (!string.IsNullOrEmpty(key)) { cookies[key] = Uri.UnescapeDataString(value); }
+                }
+            }
+
+            return cookies;
+        }
+
+        private static string GenerateSessionId()
+        {
+            var randomBytes = RandomNumberGenerator.GetBytes(16);
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var data = BitConverter.GetBytes(timestamp).Concat(randomBytes).ToArray();
+            var sessionId = Convert.ToBase64String(data);
+
+            return sessionId;
+        }
 
         protected virtual void Dispose(bool disposing)
         {
@@ -315,7 +370,7 @@ namespace MicroProxy.Models
     }
 
     [DebuggerNonUserCode]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1844:Fornecer substituições baseadas em memória de métodos assíncronos ao subclasse 'Stream'", Justification = "Sem necessidade")]
+    [SuppressMessage("Performance", "CA1844:Fornecer substituições baseadas em memória de métodos assíncronos ao subclasse 'Stream'", Justification = "Sem necessidade")]
     public class BodyStream : Stream, IDisposable
     {
         internal BodyStream(Stream stream, NetworkStream clientStream, HttpPacoteFromListener httpPacote, bool read = true, bool write = true, bool canSeek = false, MemoryStream? buffer = null)
@@ -358,6 +413,7 @@ namespace MicroProxy.Models
             if (_httpPacote is HttpResponseFromListener httpResponse && !httpResponse.HasStarted)
             {
                 httpResponse.GetType().GetProperty(nameof(httpResponse.HasStarted))!.SetValue(httpResponse, true);
+                httpResponse.HttpContext.Session?.CommitAsync(httpResponse.HttpContext.RequestAborted).Wait();
                 return MontarCabecalhoPacote(_httpPacote.HttpContext.Request.Protocol, (HttpStatusCode)httpResponse.StatusCode, httpResponse.Headers);
             }
 
@@ -502,5 +558,67 @@ namespace MicroProxy.Models
                 disposedValue = true;
             }
         }
+    }
+
+    public class SessionFromListener : ISession
+    {
+        public SessionFromListener(IDataProtector protector, string sessionId, string? cookieValue, SessionOptions sessionOptions, HttpContextFromListener context)
+        {
+            _protector = protector;
+            _sessionId = sessionId;
+            _cookieValue = cookieValue;
+            _sessionOptions = sessionOptions;
+            _context = context;
+            LoadAsync().Wait();
+        }
+
+        private readonly Dictionary<string, byte[]> _store = [];
+        private readonly IDataProtector _protector;
+        private readonly string _sessionId;
+        private readonly string? _cookieValue;
+        private readonly SessionOptions _sessionOptions;
+        private readonly HttpContextFromListener _context;
+        public bool IsAvailable => _sessionId != null;
+        public string Id => _sessionId;
+        public IEnumerable<string> Keys => _store.Keys;
+
+        public void Clear() => _store.Clear();
+
+        public Task CommitAsync(CancellationToken cancellationToken = default)
+        {
+            var json = JsonConvert.SerializeObject(_store);
+            var jsonBytes = Encoding.UTF8.GetBytes(json);
+            var protectedData = _protector.Protect(jsonBytes);
+            var cookieValue = $"{_sessionOptions.Cookie.Name}={Convert.ToBase64String(protectedData)}";
+
+            _context.Response.Headers.SetCookie = new StringValues([.. _context.Response.Headers.Cookie.Append(cookieValue)]);
+
+            return Task.CompletedTask;
+        }
+
+        public Task LoadAsync(CancellationToken cancellationToken = default)
+        {
+            if (!string.IsNullOrEmpty(_cookieValue))
+            {
+                try
+                {
+                    var protectedData = Convert.FromBase64String(_cookieValue);
+                    var jsonBytes = _protector.Unprotect(protectedData);
+                    var json = Encoding.UTF8.GetString(jsonBytes);
+                    var store = JsonConvert.DeserializeObject<Dictionary<string, byte[]>>(json) ?? [];
+
+                    foreach (var item in store) { if (!_store.TryAdd(item.Key, item.Value)) { _store[item.Key] = item.Value; } }
+                }
+                catch { }
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public void Remove(string key) => _store.Remove(key);
+
+        public void Set(string key, byte[] value) { if (!_store.TryAdd(key, value)) { _store[key] = value; } }
+
+        public bool TryGetValue(string key, [NotNullWhen(true)] out byte[]? value) => _store.TryGetValue(key, out value);
     }
 }
