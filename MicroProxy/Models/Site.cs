@@ -12,29 +12,29 @@ namespace MicroProxy.Models
     {
         private const int MILLISEGUNDO_AGUARDAR_FECHAR = 1000;
         private static readonly string[] HeadersIpFw = ["X-Real-IP", "X-Forwarded-For"];
-        private static readonly Dictionary<string, List<string>> DicUrlsUsadas = [];
         private static readonly Lock LockUrlsUsadas = new();
+        private static readonly Dictionary<string, List<string>> DicUrlsUsadas = [];
         private static Executavel[] Executaveis = [];
-        private string[]? _bindDestinos = null;
-        private UrlDestino[]? _urlsDestinos = null;
-        private string? _urlDestino = null;
-        private int? _limiteTempoPing = null;
-        private string[]? _methods = null;
-        private bool? _ignorarCertificadoDestino = null;
-        private Dictionary<string, string?[]>? _requestHeadersAdicionais = null;
-        private Dictionary<string, string?[]>? _responseHeadersAdicionais = null;
+        private readonly List<string> _urlsDescartadas = [];
+        private Dictionary<string, string?[]>? _requestHeadersAdicionais;
+        private Dictionary<string, string?[]>? _responseHeadersAdicionais;
+        private UrlDestino[]? _urlsDestinos;
+        private string? _urlDestino;
+        private string[]? _bindDestinos;
+        private string[]? _methods;
+        private int? _limiteTempoPing;
+        private bool? _ignorarCertificadoDestino;
         private bool? _semDelay;
         private int? _poolConexoes;
         private int? _bufferReq;
         private int? _bufferResp;
         private int? _segundosTempoMax;
-        private string? _exePath = null;
-        private string? _exeArgumentos = null!;
-        private string? _exePathDiretorio = null!;
-        private bool? _janelaVisivel = null;
-        private bool? _autoExec = null;
-        private bool? _autoFechar = null;
-        private readonly List<string> _urlsDescartadas = [];
+        private string? _exePath;
+        private string? _exeArgumentos;
+        private string? _exePathDiretorio;
+        private bool? _janelaVisivel;
+        private bool? _autoExec;
+        private bool? _autoFechar;
 
         private static HttpContextFromListener HttpContext => UtilsHelper.HttpContextAccessor.HttpContext!;
         public static string IpLocal => (HttpContext?.Connection.LocalIpAddress ?? IPAddress.Loopback).ToString();
@@ -183,10 +183,10 @@ namespace MicroProxy.Models
 
             set => _urlDestino = ExibirUrlAjustada(value);
         }
-        public bool IgnorarCertificadoDestino { get => _ignorarCertificadoDestino ?? false; set => _ignorarCertificadoDestino ??= value; }
-        public string[] Methods { get => _methods!; set => _methods ??= value ?? ["*"]; }
         public Dictionary<string, string?[]>? RequestHeadersAdicionais { get => _requestHeadersAdicionais; set => _requestHeadersAdicionais ??= value; }
         public Dictionary<string, string?[]>? ResponseHeadersAdicionais { get => _responseHeadersAdicionais; set => _responseHeadersAdicionais ??= value; }
+        public string[] Methods { get => _methods!; set => _methods ??= value ?? ["*"]; }
+        public bool IgnorarCertificadoDestino { get => _ignorarCertificadoDestino ?? false; set => _ignorarCertificadoDestino ??= value; }
         public bool SemDelay { get => _semDelay ?? false; set => _semDelay ??= value; }
         public int PoolConexoes { get => _poolConexoes ?? 1; set => _poolConexoes ??= value; }
         public int BufferReq { get => _bufferReq ?? 0; set => _bufferReq ??= value; }
