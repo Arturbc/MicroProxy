@@ -15,7 +15,7 @@ using static MicroProxy.Models.Site;
 Configuracao configuracao = new();
 SessionOptions? sessionOptions = new()
 {
-    IdleTimeout = configuracao.MinutosValidadeCookie == 0 ? TimeSpan.MaxValue : TimeSpan.FromDays(configuracao.MinutosValidadeCookie),
+    IdleTimeout = configuracao.MinutosValidadeCookie == 0 ? TimeSpan.MaxValue : TimeSpan.FromMinutes(configuracao.MinutosValidadeCookie),
     Cookie = new() { Name = NOME_COOKIE, IsEssential = true }
 };
 string[]? codecConteudo = configuracao.CompressionResponse?.Split(',', StringSplitOptions.TrimEntries);

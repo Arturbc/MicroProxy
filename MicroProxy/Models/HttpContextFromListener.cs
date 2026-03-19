@@ -591,7 +591,10 @@ namespace MicroProxy.Models
             var protectedData = _protector.Protect(jsonBytes);
             var cookieValue = $"{_sessionOptions.Cookie.Name}={_sessionId}-{Convert.ToBase64String(protectedData)}";
 
-            _context.Response.Headers.SetCookie = new StringValues([.. _context.Response.Headers.Cookie.Append($"{cookieValue}; Path=/; HttpOnly; SameSite=Lax")]);
+            _context.Response.Headers.SetCookie = new StringValues([.. _context.Response.Headers.Cookie.Append($"{cookieValue}; " +
+                (_sessionOptions.IdleTimeout == TimeSpan.MaxValue ? "" : $"Max-Age={(int)_sessionOptions.IdleTimeout.TotalSeconds}; " +
+                    $"Expires={DateTimeOffset.UtcNow.Add(_sessionOptions.IdleTimeout):ddd, dd MMM yyyy HH:mm:ss GMT}; ") + $"Path=/; HttpOnly; SameSite=Lax" +
+                (_sessionOptions.Cookie.SecurePolicy == CookieSecurePolicy.Always ? "; Secure" : ""))]);
 
             return Task.CompletedTask;
         }
