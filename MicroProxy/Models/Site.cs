@@ -11,6 +11,7 @@ namespace MicroProxy.Models
     public partial class Site
     {
         private const int MILLISEGUNDO_AGUARDAR_FECHAR = 1000;
+        private static readonly string[] HeadersIpFw = ["X-Real-IP", "X-Forwarded-For"];
         private static readonly Dictionary<string, List<string>> DicUrlsUsadas = [];
         private static readonly Lock LockUrlsUsadas = new();
         private static Executavel[] Executaveis = [];
@@ -46,10 +47,7 @@ namespace MicroProxy.Models
                 var request = HttpContext?.Request;
 
                 if (request != null)
-                {
-                    string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
-                    foreach (string header in headersIpFw) { if (!string.IsNullOrEmpty(request.Headers[header])) { _ipRemotoFw = request.Headers[header]; break; } }
-                }
+                { foreach (string header in HeadersIpFw) { if (!string.IsNullOrEmpty(request.Headers[header])) { _ipRemotoFw = request.Headers[header]; break; } } }
 
                 return _ipRemotoFw!;
             }

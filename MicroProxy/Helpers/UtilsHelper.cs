@@ -60,7 +60,6 @@ namespace MicroProxy.Models
 
             try
             {
-                string[] headersIpFw = ["X-Real-IP", "X-Forwarded-For"];
                 var ipRemotoFw = Site.IpRemotoFw;
 
                 if (configuracao.IpsBloqueados.Contains(ipRemotoFw))
