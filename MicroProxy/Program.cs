@@ -23,9 +23,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddSingleton<IHttpContextFromListenerAccessor, HttpContextFromListenerAccessor>();
-builder.Services.AddDataProtection()
-    .PersistKeysToFileSystem(new DirectoryInfo("./keys"))
-    .SetApplicationName(NOME_COOKIE);
+builder.Services.AddDataProtection().SetApplicationName(NOME_COOKIE);
 builder.Services.AddScoped(provider =>
 {
     var protectorProvider = provider.GetRequiredService<IDataProtectionProvider>();

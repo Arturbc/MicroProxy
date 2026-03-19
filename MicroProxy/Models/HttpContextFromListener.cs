@@ -65,9 +65,9 @@ namespace MicroProxy.Models
             {
                 var clientCookies = ParseCookies(Request.Headers.Cookie);
                 Request.Headers.Cookie = FiltrarCookie(sessionOptions.Cookie.Name);
-                var sessionCookie = clientCookies!.GetValueOrDefault(sessionOptions.Cookie.Name);
-                var sessionId = sessionCookie ?? GenerateSessionId();
-                Session = new SessionFromListener(protector ?? throw new InvalidOperationException(), sessionId, sessionCookie, sessionOptions, this);
+                var sessionCookie = clientCookies!.GetValueOrDefault(sessionOptions.Cookie.Name)?.Split('-');
+                var sessionId = sessionCookie?[0] ?? GenerateSessionId();
+                Session = new SessionFromListener(protector ?? throw new InvalidOperationException(), sessionId, sessionCookie?[1], sessionOptions, this);
             }
         }
 
@@ -80,7 +80,7 @@ namespace MicroProxy.Models
 
         private StringValues FiltrarCookie(string? nome)
         {
-            if (nome == null || Request.Headers.Cookie.DefaultIfEmpty() == null) { return Request.Headers.Cookie; }
+            if (string.IsNullOrEmpty(nome) || string.IsNullOrEmpty(Request.Headers.Cookie)) { return Request.Headers.Cookie; }
             return new Regex($"(?<=(?:^|(?:; *))){nome}[^;]+(?:(?:; *)|(?: *$))").Replace(Request.Headers.Cookie!, "");
         }
 
@@ -589,9 +589,9 @@ namespace MicroProxy.Models
             var json = JsonConvert.SerializeObject(_store);
             var jsonBytes = Encoding.UTF8.GetBytes(json);
             var protectedData = _protector.Protect(jsonBytes);
-            var cookieValue = $"{_sessionOptions.Cookie.Name}={Convert.ToBase64String(protectedData)}";
+            var cookieValue = $"{_sessionOptions.Cookie.Name}={_sessionId}-{Convert.ToBase64String(protectedData)}";
 
-            _context.Response.Headers.SetCookie = new StringValues([.. _context.Response.Headers.Cookie.Append(cookieValue)]);
+            _context.Response.Headers.SetCookie = new StringValues([.. _context.Response.Headers.Cookie.Append($"{cookieValue}; Path=/; HttpOnly; SameSite=Lax")]);
 
             return Task.CompletedTask;
         }
