@@ -102,12 +102,13 @@ foreach (var (listener, certificado) in tcpListeners)
             {
                 using var ctsAbort = new CancellationTokenSource();
                 using var ctsAbortLink = CancellationTokenSource.CreateLinkedTokenSource(app.Lifetime.ApplicationStopping, ctsAbort.Token);
-                string url = "Destino inválido!";
+                var url = "Destino inválido!";
                 using var clientTask = client;
                 await using var clientStreamTask = clientStream;
-                bool httpContextStarted = false;
+                var httpContextStarted = false;
                 IPEndPoint? ipRemoto = null;
                 IPEndPoint? ipLocal = null;
+                var inicioTarefa = DateTime.Now;
                 using Task? tarefaCheck = Task.Run(async () =>
                 {
                     await Task.Delay(1000, ctsAbortLink.Token);
@@ -169,7 +170,7 @@ foreach (var (listener, certificado) in tcpListeners)
                 try
                 {
                     ExibirLog($"Cliente {ipRemoto} desconectado de {ipLocal}... (Conexões ativas: {tarefas})");
-                    ExibirLog($"URL de conexão desconectada: {url}");
+                    ExibirLog($"URL de conexão desconectada: {url}... (Tempo conectado: {DateTime.Now.Subtract(inicioTarefa).TotalSeconds:F2} segundos)");
                 }
                 catch { }
                 ctsAbort.Cancel();

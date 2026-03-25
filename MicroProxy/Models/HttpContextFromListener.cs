@@ -181,7 +181,7 @@ namespace MicroProxy.Models
                 if (stream is not NetworkStream && stream is not SslStream) { throw new ArgumentException("O parâmetro é de tipo não suportado.", nameof(stream)); }
                 string[] methodsSemBody = [HttpMethods.Head, HttpMethods.Get, HttpMethods.Connect, HttpMethods.Delete, HttpMethods.Trace];
                 using var body = new BodyStream(stream, clientStream, this, true, false);
-                string[] req = LerCabecalhoPacote(body, Headers, context.RequestAborted);
+                var req = LerCabecalhoPacote(body, Headers, context.RequestAborted);
                 uri = new(req[1].Contains("://") || req[1].StartsWith('/') ? req[1] : "http://" + req[1], UriKind.RelativeOrAbsolute);
                 var splitPath = uri.OriginalString.Contains('?') ? uri.OriginalString.Split('?') : null;
                 Method = req[0];
@@ -237,7 +237,7 @@ namespace MicroProxy.Models
                 {
                     using var body = new BodyStream(stream, clientStream, this, true, false);
                     Timeout = context.Response.Timeout;
-                    string[] resp = LerCabecalhoPacote(body, Headers, context.RequestAborted);
+                    var resp = LerCabecalhoPacote(body, Headers, context.RequestAborted);
                     StatusCode = int.Parse(resp[1]);
                     Body = body.AtualizarBody(true, !HttpMethods.IsHead(context.Request.Method));
                     _codec = codec ?? Headers.ContentEncoding.ToString() ?? context.Response._codec;
@@ -436,12 +436,12 @@ namespace MicroProxy.Models
 
         public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
-            int totalRead = 0;
-            bool bufferNovo = _buffer.Length == _buffer.Position;
-            bool loopAtivo;
+            var totalRead = 0;
+            var bufferNovo = _buffer.Length == _buffer.Position;
             var internalBuffer = new byte[Math.Max(_clientStream.Socket.ReceiveBufferSize, count + offset)];
-            int posicaoAtualBuffer = (int)_buffer.Position;
+            var posicaoAtualBuffer = (int)_buffer.Position;
             var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(_httpPacote.Timeout)).Token);
+            bool loopAtivo;
 
             try
             {
@@ -449,7 +449,7 @@ namespace MicroProxy.Models
                 var tentativa = tentativaInicial;
                 do
                 {
-                    int read = 0;
+                    var read = 0;
                     var ct = cts?.Token ?? cancellationToken;
                     var parteBuffer = internalBuffer.AsMemory(offset + totalRead, count - totalRead);
 
@@ -483,8 +483,8 @@ namespace MicroProxy.Models
                     }
 
                     totalRead += read;
-                    loopAtivo = (read > 0 && totalRead < count) || (totalRead == 0 && _clientStream.Socket.Connected
-                            && (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable));
+                    loopAtivo = ((read > 0 && totalRead < count) || totalRead == 0) && _clientStream.Socket.Connected
+                            && (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable);
                 } while (loopAtivo);
             }
             catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)]))

@@ -205,7 +205,7 @@ namespace MicroProxy.Models
 
             if (!HttpMethods.IsConnect(HttpContext?.Request.Method ?? ""))
             {
-                if (!urlAjustada.StartsWith("http", StringComparison.InvariantCultureIgnoreCase)) { urlAjustada = $"http://{urlAjustada}"; }
+                if (!urlAjustada.StartsWith('/') && !urlAjustada.StartsWith("http", StringComparison.InvariantCultureIgnoreCase)) { urlAjustada = $"http://{urlAjustada}"; }
                 if (HttpContext != null && HttpContext.Request.GetDisplayUrl().EndsWith('/')) { urlAjustada += '/'; }
             }
 
