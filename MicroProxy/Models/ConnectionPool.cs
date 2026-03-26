@@ -91,8 +91,8 @@ namespace MicroProxy.Models
         {
             try
             {
-                if (!socket.Connected || socket.Poll(1000, SelectMode.SelectError)) { return false; }
-                return !socket.Poll(1000, SelectMode.SelectRead) && socket.Available == 0;
+                if (!socket.Connected || socket.Poll(1, SelectMode.SelectError)) { return false; }
+                return !socket.Poll(1, SelectMode.SelectRead) && socket.Available == 0;
             }
             catch
             {

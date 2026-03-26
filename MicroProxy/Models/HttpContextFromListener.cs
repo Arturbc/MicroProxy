@@ -468,10 +468,7 @@ namespace MicroProxy.Models
                             }
                         }
                         catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)]))
-                        {
-                            if (ct.IsCancellationRequested) { throw new Exception("Ação cancelada...", ex); }
-                            else { await Task.Delay(10, ct); }
-                        }
+                        { if (ct.IsCancellationRequested) { throw new Exception("Ação cancelada...", ex); } }
 
                         if (read == 0) { if (cancellationToken.IsCancellationRequested || _buffer.Length > 0 && --tentativa <= 0) { break; } }
                         else { tentativa = tentativaInicial; }
@@ -483,8 +480,8 @@ namespace MicroProxy.Models
                     }
 
                     totalRead += read;
-                    loopAtivo = ((read > 0 && totalRead < count) || totalRead == 0) && _clientStream.Socket.Connected
-                            && (!_clientStream.Socket.Poll(1000, SelectMode.SelectRead) || _clientStream.DataAvailable);
+                    loopAtivo = ((read > 0 && totalRead < count) || totalRead == 0) && _clientStream.Socket.Connected && !_clientStream.Socket.Poll(1, SelectMode.SelectError)
+                        && (!_clientStream.Socket.Poll(1, SelectMode.SelectRead) || _clientStream.DataAvailable);
                 } while (loopAtivo);
             }
             catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)]))
@@ -543,7 +540,7 @@ namespace MicroProxy.Models
             var cabecalho = MontarCabecalho();
             if (!string.IsNullOrEmpty(cabecalho)) { await _buffer.WriteAsync(Encoding.UTF8.GetBytes(cabecalho), cancellationToken); }
             await _buffer.WriteAsync(buffer.AsMemory(offset, count), cancellationToken);
-            if (_clientStream.Socket.Poll(1000, SelectMode.SelectWrite)) { await BaseStream.WriteAsync(_buffer.ToArray().AsMemory(0, (int)_buffer.Position), cancellationToken); }
+            if (_clientStream.Socket.Poll(1, SelectMode.SelectWrite)) { await BaseStream.WriteAsync(_buffer.ToArray().AsMemory(0, (int)_buffer.Position), cancellationToken); }
             _buffer.Seek(0, SeekOrigin.Begin);
             _buffer.SetLength(0);
         }

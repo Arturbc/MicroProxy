@@ -296,7 +296,6 @@ namespace MicroProxy.Models
                                         }
                                         else
                                         {
-
                                             site.UrlDestino = $"{site.UrlDestino.TrimEnd('/')}{pathUrlDestino}";
                                             urlDestino = new(site.UrlDestino);
 
@@ -362,7 +361,7 @@ namespace MicroProxy.Models
 
                                                         try
                                                         {
-                                                            if (response.Body.CanWrite)
+                                                            if (response.Body.CanWrite && serverResponse.Body.CanRead)
                                                             { await serverResponse.Body.CopyToAsync(site.BufferResp, serverResponse.ContentLength, [response.Body, memoryResp], context.RequestAborted); }
                                                         }
                                                         catch (Exception ex) { site.Exception ??= ex; }
@@ -527,7 +526,7 @@ namespace MicroProxy.Models
                 var limiteAjustado = limite ?? tambuffer;
                 var buffer = new byte[tambuffer];
 
-                while ((limiteAjustado -= bytesRead) > 0 && (bytesRead = await fonte.ReadAsync(buffer.AsMemory(0, (int)Math.Min(limiteAjustado, tambuffer)), cancellationToken)) > 0)
+                while ((limite == null || (limite -= bytesRead) > 0) && (bytesRead = await fonte.ReadAsync(buffer.AsMemory(0, (int)Math.Min(limiteAjustado, tambuffer)), cancellationToken)) > 0)
                 { foreach (var destino in destinos) { await destino.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken); } Array.Clear(buffer); }
             }
         }

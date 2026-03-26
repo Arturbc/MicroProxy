@@ -93,7 +93,7 @@ foreach (var (listener, certificado) in tcpListeners)
         {
             var client = await listener.AcceptTcpClientAsync(app.Lifetime.ApplicationStopping);
             var clientStream = client.GetStream();
-            if (clientStream.Socket.Poll(1000, SelectMode.SelectRead) && !clientStream.DataAvailable) { clientStream.Socket.Dispose(); continue; }
+            if (clientStream.Socket.Poll(1, SelectMode.SelectRead) && !clientStream.DataAvailable) { clientStream.Socket.Dispose(); continue; }
             try { configuracao = new(); } catch { }
             if (configuracao.BufferReq > 0) { clientStream.Socket.ReceiveBufferSize = configuracao.BufferReq; }
             if (configuracao.BufferResp > 0) { clientStream.Socket.SendBufferSize = configuracao.BufferResp; }
@@ -113,7 +113,8 @@ foreach (var (listener, certificado) in tcpListeners)
                 {
                     await Task.Delay(1000, ctsAbortLink.Token);
                     while (clientStream.Socket.Connected && !ctsAbortLink.IsCancellationRequested
-                            && (!clientStream.Socket.Poll(1000, SelectMode.SelectRead) || clientStream.DataAvailable))
+                           && !clientStream.Socket.Poll(1, SelectMode.SelectError)
+                           && (!clientStream.Socket.Poll(1, SelectMode.SelectRead) || clientStream.DataAvailable))
                     { await Task.Delay(1000, ctsAbortLink.Token); }
                     try { ctsAbort.Cancel(); } catch (ObjectDisposedException) { }
                 });
