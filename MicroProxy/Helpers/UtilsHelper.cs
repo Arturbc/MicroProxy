@@ -367,8 +367,9 @@ namespace MicroProxy.Models
                                                         catch (Exception ex) { site.Exception ??= ex; }
 
                                                         try { await Task.WhenAny(tarefasAsync); context.RequestAborted.ThrowIfCancellationRequested(); }
-                                                        catch (Exception ex) { site.Exception ??= ex; await serverStreamEmUso.DisposeAsync(); }
+                                                        catch (Exception ex) { site.Exception ??= ex; }
 
+                                                        if (site.Exception != null) { await serverStreamEmUso.DisposeAsync(); }
                                                         await serverResponse.CompleteAsync(tcpClient);
                                                         await memoryResp.FlushAsync();
 
