@@ -15,16 +15,33 @@ namespace MicroProxy.Helpers
         public static async Task<string> ReadLineAsync(Stream stream, CancellationToken cancellationToken = default)
         {
             StringBuilder stringBuilder = new();
-            var buffer = new byte[1];
+            var buffer = new byte[stream.CanSeek ? 1024 : 1];
             char[] cProibido = ['\n', '\r', '\0'];
             char c;
 
             do
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var posInicial = stream.Position;
                 var bytesRead = await stream.ReadAsync(buffer, cancellationToken);
 
-                if (bytesRead != 0) { if (!cProibido.Contains(c = (char)buffer[0])) { stringBuilder.Append(c); } }
+                if (bytesRead != 0)
+                {
+                    if (bytesRead > 1)
+                    {
+                        var i = buffer.IndexOf((byte)'\n');
+
+                        if (i > 0)
+                        {
+                            stream.Seek(posInicial + i + 1, SeekOrigin.Begin);
+                            stringBuilder.Append(Encoding.Default.GetString(buffer[..i]).TrimEnd('\r', '\n', ' '));
+                        }
+                        else if (i == -1) { stringBuilder.Append(Encoding.Default.GetString(buffer).TrimEnd('\r', '\n', ' ')); }
+                        else { stream.Seek(posInicial, SeekOrigin.Begin); }
+                        c = '\n';
+                    }
+                    else if (!cProibido.Contains(c = (char)buffer[0])) { stringBuilder.Append(c); }
+                }
                 else { c = '\n'; }
             } while (c != '\n');
 

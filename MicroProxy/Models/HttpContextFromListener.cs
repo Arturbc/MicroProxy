@@ -180,7 +180,7 @@ namespace MicroProxy.Models
             {
                 if (stream is not NetworkStream && stream is not SslStream) { throw new ArgumentException("O parâmetro é de tipo não suportado.", nameof(stream)); }
                 string[] methodsSemBody = [HttpMethods.Head, HttpMethods.Get, HttpMethods.Connect, HttpMethods.Delete, HttpMethods.Trace];
-                using var body = new BodyStream(stream, clientStream, this, true, false);
+                using var body = new BodyStream(stream, clientStream, this, true, false, true);
                 var req = LerCabecalhoPacote(body, Headers, context.RequestAborted);
                 uri = new(req[1].Contains("://") || req[1].StartsWith('/') ? req[1] : "http://" + req[1], UriKind.RelativeOrAbsolute);
                 var splitPath = uri.OriginalString.Contains('?') ? uri.OriginalString.Split('?') : null;
@@ -188,7 +188,7 @@ namespace MicroProxy.Models
                 Path = uri.IsAbsoluteUri ? uri.AbsolutePath : splitPath?[0] ?? uri.OriginalString;
                 QueryString = new QueryString(uri.IsAbsoluteUri ? uri.Query : (splitPath != null ? '?' + splitPath[1] : null));
                 Protocol = req[2];
-                Body = body.AtualizarBody(!methodsSemBody.Contains(Method), false);
+                Body = body.AtualizarBody(!methodsSemBody.Contains(Method), false, false);
             }
             catch (Exception ex) { clientStream.Dispose(); throw new("Falha ao carregar cabeçalho da requisição", ex); }
         }
@@ -235,7 +235,7 @@ namespace MicroProxy.Models
                 _clientStream = clientStream;
                 if (clonarContext)
                 {
-                    using var body = new BodyStream(stream, clientStream, this, true, false);
+                    using var body = new BodyStream(stream, clientStream, this, true, false, true);
                     Timeout = context.Response.Timeout;
                     var resp = LerCabecalhoPacote(body, Headers, context.RequestAborted);
                     StatusCode = int.Parse(resp[1]);
@@ -378,7 +378,7 @@ namespace MicroProxy.Models
             BaseStream = stream is NetworkStream || stream is SslStream ? stream : throw new ArgumentException("Parâmetro to tipo inválido", nameof(stream));
             CanRead = read;
             CanWrite = write;
-            CanSeek = canSeek && buffer != null;
+            CanSeek = canSeek;
             _httpPacote = httpPacote;
             _clientStream = clientStream;
             _buffer = buffer ?? new();
@@ -476,7 +476,7 @@ namespace MicroProxy.Models
                     else
                     {
                         read = await _buffer.ReadAsync(parteBuffer, cancellationToken); posicaoAtualBuffer = (int)_buffer.Position;
-                        if (read == 0) { bufferNovo = true; }
+                        if (_buffer.Position == _buffer.Length) { bufferNovo = true; }
                     }
 
                     totalRead += read;
