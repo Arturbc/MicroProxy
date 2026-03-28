@@ -22,7 +22,7 @@ namespace MicroProxy.Helpers
             do
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var posInicial = stream.Position;
+                var posInicial = stream.CanSeek ? stream.Position : 0;
                 var bytesRead = await stream.ReadAsync(buffer, cancellationToken);
 
                 if (bytesRead != 0)
@@ -34,10 +34,14 @@ namespace MicroProxy.Helpers
                         if (i > 0)
                         {
                             stream.Seek(posInicial + i + 1, SeekOrigin.Begin);
-                            stringBuilder.Append(Encoding.Default.GetString(buffer[..i]).TrimEnd('\r', '\n', ' '));
+                            stringBuilder.Append(Encoding.Default.GetString(buffer[..i]).Trim('\r', '\n', ' '));
                         }
-                        else if (i == -1) { stringBuilder.Append(Encoding.Default.GetString(buffer).TrimEnd('\r', '\n', ' ')); }
-                        else { stream.Seek(posInicial, SeekOrigin.Begin); }
+                        else
+                        {
+                            if (i == -1) { stringBuilder.Append(Encoding.Default.GetString(buffer).Trim('\r', '\n', ' ')); }
+                            stream.Seek(posInicial, SeekOrigin.Begin);
+                        }
+
                         c = '\n';
                     }
                     else if (!cProibido.Contains(c = (char)buffer[0])) { stringBuilder.Append(c); }

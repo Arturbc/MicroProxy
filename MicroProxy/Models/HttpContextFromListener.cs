@@ -180,7 +180,7 @@ namespace MicroProxy.Models
             {
                 if (stream is not NetworkStream && stream is not SslStream) { throw new ArgumentException("O parâmetro é de tipo não suportado.", nameof(stream)); }
                 string[] methodsSemBody = [HttpMethods.Head, HttpMethods.Get, HttpMethods.Connect, HttpMethods.Delete, HttpMethods.Trace];
-                using var body = new BodyStream(stream, clientStream, this, true, false, true);
+                using var body = new BodyStream(stream, clientStream, this, true, false);
                 var req = LerCabecalhoPacote(body, Headers, context.RequestAborted);
                 uri = new(req[1].Contains("://") || req[1].StartsWith('/') ? req[1] : "http://" + req[1], UriKind.RelativeOrAbsolute);
                 var splitPath = uri.OriginalString.Contains('?') ? uri.OriginalString.Split('?') : null;
@@ -235,7 +235,7 @@ namespace MicroProxy.Models
                 _clientStream = clientStream;
                 if (clonarContext)
                 {
-                    using var body = new BodyStream(stream, clientStream, this, true, false, true);
+                    using var body = new BodyStream(stream, clientStream, this, true, false);
                     Timeout = context.Response.Timeout;
                     var resp = LerCabecalhoPacote(body, Headers, context.RequestAborted);
                     StatusCode = int.Parse(resp[1]);
@@ -438,7 +438,7 @@ namespace MicroProxy.Models
         {
             var totalRead = 0;
             var bufferNovo = _buffer.Length == _buffer.Position;
-            var internalBuffer = new byte[Math.Max(_clientStream.Socket.ReceiveBufferSize, count + offset)];
+            var internalBuffer = new byte[Math.Max(_clientStream.Socket.ReceiveBufferSize, count + offset)].AsMemory();
             var posicaoAtualBuffer = (int)_buffer.Position;
             var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(_httpPacote.Timeout)).Token);
             bool loopAtivo;
@@ -451,7 +451,9 @@ namespace MicroProxy.Models
                 {
                     var read = 0;
                     var ct = cts?.Token ?? cancellationToken;
-                    var parteBuffer = internalBuffer.AsMemory(offset + totalRead, count - totalRead);
+                    var inicioParteBuffer = offset + totalRead;
+                    var tamParteBuffer = count - totalRead;
+                    var parteBuffer = internalBuffer[inicioParteBuffer..tamParteBuffer];
 
                     if (bufferNovo)
                     {
@@ -492,13 +494,13 @@ namespace MicroProxy.Models
             }
 
             cts?.Dispose();
-            var indexChunk = internalBuffer.AsSpan(1).IndexOf((byte)'\r');
+            var indexChunk = internalBuffer[1..].ToArray().IndexOf((byte)'\r');
             var chunk = -1;
 
             if (indexChunk != -1)
             {
                 indexChunk += 3;
-                var byteString = Encoding.UTF8.GetString(internalBuffer[..indexChunk]);
+                var byteString = Encoding.UTF8.GetString(internalBuffer[..indexChunk].ToArray());
                 var hexString = byteString.Trim(['\r', '\n', ' ']);
                 try { chunk = Convert.ToInt32(hexString, 16); }
                 catch { indexChunk = 0; }
@@ -513,8 +515,16 @@ namespace MicroProxy.Models
                 totalRead = chunk;
             }
 
+            if ((totalRead + indexChunk) > count)
+            {
+                var diff = totalRead + indexChunk - count;
+
+                posicaoAtualBuffer -= diff;
+                totalRead -= diff;
+            }
+
             _buffer.Seek(posicaoAtualBuffer, SeekOrigin.Begin);
-            Array.Copy(internalBuffer[indexChunk..], offset, buffer, offset, totalRead);
+            internalBuffer.Slice(indexChunk + offset, totalRead).CopyTo(buffer.AsMemory(offset));
             //Console.WriteLine($"\"{Encoding.UTF8.GetString(buffer.AsMemory(offset, chunk).ToArray()).Replace("\n", "\\n\n").Replace("\r", "\\r")}\"");
             if (!CanSeek)
             {
