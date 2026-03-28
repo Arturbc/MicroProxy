@@ -369,7 +369,6 @@ namespace MicroProxy.Models
                                                         try { await Task.WhenAny(tarefasAsync); context.RequestAborted.ThrowIfCancellationRequested(); }
                                                         catch (Exception ex) { site.Exception ??= ex; }
 
-                                                        if (site.Exception != null) { await serverStreamEmUso.DisposeAsync(); }
                                                         await serverResponse.CompleteAsync(tcpClient);
                                                         await memoryResp.FlushAsync();
 
@@ -429,6 +428,8 @@ namespace MicroProxy.Models
                                         if (!response.HasStarted && response.StatusCode < StatusCodes.Status400BadRequest) { response.StatusCode = StatusCodes.Status502BadGateway; }
                                         site.Exception = site.Exception != null ? new AggregateException(site.Exception, ex) : ex;
                                     }
+
+                                    if (site.Exception != null || serverStream.DataAvailable) { await serverStreamEmUso.DisposeAsync(); }
                                 }
                             }
                         }
