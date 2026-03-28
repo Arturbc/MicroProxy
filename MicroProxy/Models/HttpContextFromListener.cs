@@ -445,8 +445,6 @@ namespace MicroProxy.Models
 
             try
             {
-                const int tentativaInicial = 10;
-                var tentativa = tentativaInicial;
                 do
                 {
                     var read = 0;
@@ -472,17 +470,17 @@ namespace MicroProxy.Models
                         catch (Exception ex) when (ex.Contains([typeof(OperationCanceledException), typeof(TaskCanceledException)]))
                         { if (ct.IsCancellationRequested) { throw new Exception("Ação cancelada...", ex); } }
 
-                        if (read == 0) { if (cancellationToken.IsCancellationRequested || _buffer.Length > 0 && --tentativa <= 0) { break; } }
-                        else { tentativa = tentativaInicial; }
+                        if (read == 0) { if (cancellationToken.IsCancellationRequested || _buffer.Length > 0) { break; } }
                     }
                     else
                     {
                         read = await _buffer.ReadAsync(parteBuffer, cancellationToken); posicaoAtualBuffer = (int)_buffer.Position;
-                        if (_buffer.Position == _buffer.Length) { bufferNovo = true; }
+                        if (_buffer.Position == _buffer.Length && _clientStream.DataAvailable) { bufferNovo = true; }
                     }
 
                     totalRead += read;
-                    loopAtivo = ((read > 0 && totalRead < count) || totalRead == 0) && _clientStream.Socket.Connected && !_clientStream.Socket.Poll(1, SelectMode.SelectError)
+                    loopAtivo = bufferNovo && ((read > 0 && totalRead < count) || totalRead == 0)
+                        && _clientStream.Socket.Connected && !_clientStream.Socket.Poll(1, SelectMode.SelectError)
                         && (!_clientStream.Socket.Poll(1, SelectMode.SelectRead) || _clientStream.DataAvailable);
                 } while (loopAtivo);
             }
