@@ -34,13 +34,10 @@ namespace MicroProxy.Helpers
                         if (i > 0)
                         {
                             stream.Seek(posInicial + i + 1, SeekOrigin.Begin);
-                            stringBuilder.Append(Encoding.Default.GetString(buffer[..i]).Trim('\r', '\n', ' '));
+                            stringBuilder.Append(Encoding.Default.GetString(buffer[..i]).TrimEnd(cProibido));
                         }
-                        else
-                        {
-                            if (i == -1) { stringBuilder.Append(Encoding.Default.GetString(buffer).Trim('\r', '\n', ' ')); }
-                            stream.Seek(posInicial, SeekOrigin.Begin);
-                        }
+                        else if (i == -1) { stringBuilder.Append(Encoding.Default.GetString(buffer).TrimEnd(cProibido)); }
+                        var teste = Encoding.Default.GetString(buffer);
 
                         c = '\n';
                     }
@@ -67,6 +64,25 @@ namespace MicroProxy.Helpers
             {
                 header = (await ReadLineAsync(stream, cancellationToken)).Split(": ") ?? [];
                 if (header.Length > 1) { headers.Append(header[0], new(header[1])); }
+                else if (stream.CanSeek && header[0].Length > 0)
+                {
+                    var buffer = new byte[4];
+
+                    stream.Seek(-header[0].Length, SeekOrigin.Current);
+                    do
+                    {
+                        _ = await stream.ReadAsync(buffer, cancellationToken);
+
+                        if (buffer.Count(b => b.Equals((byte)'\n')) < 2)
+                        {
+                            if (stream.Position >= (buffer.Length - 1)) { stream.Seek(-buffer.Length - 1, SeekOrigin.Current); }
+                            else { break; }
+                        }
+                    } while (buffer.Count(b => b.Equals((byte)'\n')) < 2);
+
+                    var i = buffer.Reverse().ToArray().IndexOf((byte)'\n');
+                    if (i != -1) { stream.Seek(-i, SeekOrigin.Current); }
+                }
             } while (header.Length > 1);
 
             return info;

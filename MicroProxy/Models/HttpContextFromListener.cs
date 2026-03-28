@@ -437,8 +437,14 @@ namespace MicroProxy.Models
         public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
         {
             var totalRead = 0;
-            var bufferNovo = _buffer.Length == _buffer.Position;
-            var internalBuffer = new byte[Math.Max(_clientStream.Socket.ReceiveBufferSize, count + offset)].AsMemory();
+            var disponivelBuffer = _buffer.Length - _buffer.Position;
+            var bufferNovo = disponivelBuffer == 0;
+            var tamInternalBuffer = count + offset;
+
+            if (tamInternalBuffer > disponivelBuffer)
+            { tamInternalBuffer = Math.Max(_clientStream.Socket.ReceiveBufferSize, tamInternalBuffer) + (int)disponivelBuffer; }
+
+            var internalBuffer = new byte[tamInternalBuffer].AsMemory();
             var posicaoAtualBuffer = (int)_buffer.Position;
             var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, new CancellationTokenSource(TimeSpan.FromSeconds(_httpPacote.Timeout)).Token);
             bool loopAtivo;
@@ -447,11 +453,10 @@ namespace MicroProxy.Models
             {
                 do
                 {
+                    var inicioParteBuffer = offset + totalRead;
+                    var parteBuffer = internalBuffer[inicioParteBuffer..];
                     var read = 0;
                     var ct = cts?.Token ?? cancellationToken;
-                    var inicioParteBuffer = offset + totalRead;
-                    var tamParteBuffer = count - totalRead;
-                    var parteBuffer = internalBuffer[inicioParteBuffer..tamParteBuffer];
 
                     if (bufferNovo)
                     {

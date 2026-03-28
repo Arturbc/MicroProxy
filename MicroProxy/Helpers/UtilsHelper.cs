@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Mime;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -459,7 +460,9 @@ namespace MicroProxy.Models
                                 Path.GetFileName(configuracao.TratamentoErroInterno), context.RequestAborted);
                     }
 
-                    if (!response.HasStarted)
+                    if (!response.HasStarted && (string.IsNullOrEmpty(request.Headers.Accept)
+                            || !MediaTypeHeaderValue.TryParse(request.Headers.Accept, out var mediaAceita)
+                            || mediaAceita.Equals(MediaTypeNames.Text.Html)))
                     {
                         response.Headers.ContentType = MediaTypeNames.Text.Html;
                         await response.WriteAsync($"<!DOCTYPE html><html><head><meta charset=\"utf-8\" /><title>Erro {response.StatusCode}</title></head>" +
@@ -525,10 +528,9 @@ namespace MicroProxy.Models
             else
             {
                 var bytesRead = 0;
-                var limiteAjustado = limite ?? tambuffer;
                 var buffer = new byte[tambuffer];
 
-                while ((limite == null || (limite -= bytesRead) > 0) && (bytesRead = await fonte.ReadAsync(buffer.AsMemory(0, (int)Math.Min(limiteAjustado, tambuffer)), cancellationToken)) > 0)
+                while ((limite == null || (limite -= bytesRead) > 0) && (bytesRead = await fonte.ReadAsync(buffer.AsMemory(0, (int)Math.Min(limite ?? tambuffer, tambuffer)), cancellationToken)) > 0)
                 { foreach (var destino in destinos) { await destino.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken); } Array.Clear(buffer); }
             }
         }
