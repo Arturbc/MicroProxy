@@ -1,6 +1,7 @@
 using MicroProxy.Extensions;
 using MicroProxy.Models;
 using Microsoft.AspNetCore.DataProtection;
+using MicroProxy.DTOs;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -23,6 +24,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddSingleton<IHttpContextFromListenerAccessor, HttpContextFromListenerAccessor>();
+builder.Services.AddWindowsService();
 builder.Services.AddDataProtection().SetApplicationName(NOME_COOKIE);
 builder.Services.AddScoped(provider =>
 {
@@ -30,24 +32,31 @@ builder.Services.AddScoped(provider =>
     return protectorProvider.CreateProtector($"{NOME_COOKIE}.Session.v1");
 });
 
-var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS")?.Split(';').OrderBy(u => u.StartsWith("https", StringComparison.OrdinalIgnoreCase)).ToArray() ?? configuracao.Ips;
+var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS")?.Split(';').OrderBy(u => u.StartsWith("https", StringComparison.OrdinalIgnoreCase))
+    .Select(e => new ConexaoEscutaDTO()
+    {
+        IP = e,
+        CertificadoPrivado = configuracao.CertificadoPrivado,
+        CertificadoPrivadoChave = configuracao.CertificadoPrivadoChave,
+        CertificadoPrivadoSenha = configuracao.CertificadoPrivadoSenha
+    }).ToArray() ?? configuracao.ConexoesEscuta;
 List<(TcpListener listener, X509Certificate2? certificado)> tcpListeners = [];
-bool fonteUrlsConfig = urls == configuracao.Ips;
+bool fonteUrlsConfig = urls == configuracao.ConexoesEscuta;
 var certificadoStr = fonteUrlsConfig ? configuracao.CertificadoPrivado : null;
 List<string> mensagens = [];
 List<Task> tarefasListeners = [];
 List<IPAddress> enderecosIp = [];
 bool https = false;
 
-foreach (string url in urls)
+foreach (var url in urls)
 {
-    var ipPorta = IpPortaRegex().Match(url);
-    Uri? uri = fonteUrlsConfig ? null : new(url);
+    var ipPorta = IpPortaRegex().Match(url.IP);
+    Uri? uri = fonteUrlsConfig ? null : new(url.IP);
 
     if (uri != null && string.IsNullOrEmpty(certificadoStr) && uri.Scheme.Equals("https")) { certificadoStr = uri.Host; }
 
     IPAddress ip = fonteUrlsConfig ? IPAddress.Parse(ipPorta.Groups["ipv4"].Success ? ipPorta.Groups["ipv4"].Value : ipPorta.Groups["ipv6"].Value) : IPAddress.Loopback;
-    var portaHttp = fonteUrlsConfig ? configuracao.PortaHttp : 0;
+    var portaHttp = fonteUrlsConfig ? url.PortaHttp ?? configuracao.PortaHttp : 0;
     ushort porta = ushort.Parse(uri == null ? (ipPorta.Groups["porta"].Success ? ipPorta.Groups["porta"].Value : "80") : uri.Port.ToString());
 
     if (!https || !enderecosIp.Contains(ip))
@@ -66,7 +75,7 @@ foreach (string url in urls)
     if (!string.IsNullOrEmpty(certificadoStr))
     {
         if (porta == 80 && !ipPorta.Groups["porta"].Success) { porta = 443; }
-        X509Certificate2? certificado = ObterCertificado(certificadoStr, configuracao.CertificadoPrivadoSenha, configuracao.CertificadoPrivadoChave
+        X509Certificate2? certificado = ObterCertificado(certificadoStr, url.CertificadoPrivadoSenha, url.CertificadoPrivadoChave
             , UtilsHelper.CertificadoEKUOID.Servidor, !https);
         https = true;
         tcpListeners.Add((new TcpListener(ip, porta), certificado));

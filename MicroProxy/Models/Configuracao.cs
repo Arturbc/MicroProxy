@@ -1,4 +1,7 @@
-﻿namespace MicroProxy.Models
+﻿using MicroProxy.DTOs;
+using Microsoft.Extensions.Hosting.WindowsServices;
+
+namespace MicroProxy.Models
 {
     public partial class Configuracao
     {
@@ -7,10 +10,59 @@
         public const string COOKIE_SITE = "cookieSite";
         public const string PATH_SITE_ATUAL = "pathSiteAtual";
         public const string PATH_SITE_ORIGEM_REDIRECT = "pathSiteOrigemRedirect";
+        private ConexaoEscutaDTO[]? _conexoesEscuta;
         protected IConfigurationRoot ConfigurationRoot { get; set; } = null!;
         public Dictionary<string, Log>? Logs { get; protected set; }
         public uint MinutosValidadeCookie { get; protected set; }
-        public string[] Ips { get; protected set; } = null!;
+        public ConexaoEscutaDTO[] ConexoesEscuta
+        {
+            get
+            {
+                List<ConexaoEscutaDTO> ce = [.. _conexoesEscuta ?? []];
+
+                if (IP != null && !ce.Any(c => c.IP.Equals(IP)))
+                {
+                    ce.Add(new()
+                    {
+                        IP = IP,
+                        CertificadoPrivado = CertificadoPrivado,
+                        CertificadoPrivadoChave = CertificadoPrivadoChave,
+                        CertificadoPrivadoSenha = CertificadoPrivadoSenha
+                    });
+                }
+
+                return [.. ce];
+            }
+
+            protected set => _conexoesEscuta = [.. value.Where(c => IP == null || c.CertificadoPrivado != null || !c.IP.Equals(IP))];
+        }
+        public string[] IPs
+        {
+            get => [.. ConexoesEscuta.Select(c => c.IP).Distinct()];
+            protected set
+            {
+                List<string> ips = [.. value];
+
+                ips.RemoveAll(i => i == IP || ConexoesEscuta.Any(c => c.IP.Equals(i)));
+
+                ConexoesEscuta = [.. ConexoesEscuta.Union(ips
+                    .Select(v => new ConexaoEscutaDTO() { IP = v, CertificadoPrivado = CertificadoPrivado,
+                        CertificadoPrivadoChave = CertificadoPrivadoChave,
+                        CertificadoPrivadoSenha = CertificadoPrivadoSenha
+                    }))];
+
+                if (!string.IsNullOrEmpty(CertificadoPrivado))
+                {
+                    foreach (var conexaoEscuta in ConexoesEscuta.Where(c => string.IsNullOrEmpty(c.CertificadoPrivado)))
+                    {
+                        conexaoEscuta.CertificadoPrivado = CertificadoPrivado;
+                        conexaoEscuta.CertificadoPrivadoChave = CertificadoPrivadoChave;
+                        conexaoEscuta.CertificadoPrivadoSenha = CertificadoPrivadoSenha;
+                    }
+                }
+            }
+        }
+        public string? IP { get; protected set; }
         public string[] IpsBloqueados { get; protected set; } = null!;
         public ushort PortaHttp { get; protected set; }
         public bool RedirectPortaHttp { get; protected set; }
@@ -30,6 +82,8 @@
         public string[] AllowHeaders { get; protected set; }
         public string[] AllowMethods { get; protected set; }
 
+        static Configuracao() { if (WindowsServiceHelpers.IsWindowsService()) { Directory.SetCurrentDirectory(AppContext.BaseDirectory); } }
+
         public Configuracao()
         {
             var configurationBuilder0 = new ConfigurationBuilder();
@@ -40,7 +94,9 @@
 
             Logs = ConfigurationRoot.GetSection(nameof(Logs)).Get<Dictionary<string, Log>>();
             MinutosValidadeCookie = ConfigurationRoot.GetValue<uint>(nameof(MinutosValidadeCookie));
-            Ips = ConfigurationRoot.GetSection(nameof(Ips)).Get<string[]>() ?? [];
+            ConexoesEscuta = ConfigurationRoot.GetSection(nameof(ConexoesEscuta)).Get<ConexaoEscutaDTO[]>() ?? [];
+            IPs = ConfigurationRoot.GetSection(nameof(IPs)).Get<string[]>() ?? [];
+            IP = ConfigurationRoot.GetValue<string>(nameof(IP));
             IpsBloqueados = ConfigurationRoot.GetSection(nameof(IpsBloqueados)).Get<string[]>() ?? [];
             PortaHttp = ConfigurationRoot.GetValue<ushort?>(nameof(PortaHttp)) ?? 0;
             RedirectPortaHttp = ConfigurationRoot.GetValue<bool>(nameof(RedirectPortaHttp));

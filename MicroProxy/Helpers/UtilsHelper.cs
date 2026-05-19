@@ -170,8 +170,8 @@ namespace MicroProxy.Models
                         var detalhesHost = await Dns.GetHostEntryAsync(urlDestino.Host, context.RequestAborted);
                         var enderecosUrl = detalhesHost?.AddressList ?? [];
 
-                        if ((configuracao.PortaHttp == urlDestino.Port || configuracao.Ips.Any(i => i.EndsWith($":{urlDestino.Port}")))
-                            && enderecosUrl.Any(e => configuracao.Ips.Any(i => i.StartsWith(e.ToString() + ':') || i.Equals(e.ToString()))))
+                        if ((configuracao.PortaHttp == urlDestino.Port || configuracao.IPs.Any(i => i.EndsWith($":{urlDestino.Port}")))
+                            && enderecosUrl.Any(e => configuracao.IPs.Any(i => i.StartsWith(e.ToString() + ':') || i.Equals(e.ToString()))))
                         { response.StatusCode = StatusCodes.Status409Conflict; throw new SocketException(response.StatusCode, "Loop de conexão detectado!"); }
 
                         if (tratarUrl)
