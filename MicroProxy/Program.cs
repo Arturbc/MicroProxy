@@ -20,17 +20,19 @@ SessionOptions? sessionOptions = new()
     Cookie = new() { Name = NOME_COOKIE, IsEssential = true }
 };
 string[]? codecConteudo = configuracao.CompressionResponse?.Split(',', StringSplitOptions.TrimEntries);
-var builder = WebApplication.CreateBuilder(args);
-
-// Add services to the container.
-builder.Services.AddSingleton<IHttpContextFromListenerAccessor, HttpContextFromListenerAccessor>();
-builder.Services.AddWindowsService();
-builder.Services.AddDataProtection().SetApplicationName(NOME_COOKIE);
-builder.Services.AddScoped(provider =>
-{
-    var protectorProvider = provider.GetRequiredService<IDataProtectionProvider>();
-    return protectorProvider.CreateProtector($"{NOME_COOKIE}.Session.v1");
-});
+var builder = Host.CreateDefaultBuilder(args).UseWindowsService().UseContentRoot(Directory.GetCurrentDirectory())
+    .ConfigureServices(services =>
+    {
+        // Add services to the container.
+        services.AddSingleton<IHttpContextFromListenerAccessor, HttpContextFromListenerAccessor>();
+        services.AddWindowsService();
+        services.AddDataProtection().SetApplicationName(NOME_COOKIE);
+        services.AddScoped(provider =>
+        {
+            var protectorProvider = provider.GetRequiredService<IDataProtectionProvider>();
+            return protectorProvider.CreateProtector($"{NOME_COOKIE}.Session.v1");
+        });
+    });
 
 var urlsEnv = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
 var urls = urlsEnv?.Split(';').OrderBy(u => u.StartsWith("https", StringComparison.OrdinalIgnoreCase))
@@ -86,10 +88,11 @@ foreach (var url in urls)
 }
 
 int tarefas = 0;
-var app = builder.Build();
-var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+var host = builder.Build();
+var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
 lifetime.ApplicationStopping.Register(OnShutdown);
 foreach (var mensagem in mensagens) { ExibirLog(mensagem); }
+_ = host.StartAsync();
 configuracao.Sites.First().ExibirVariaveisDisponiveis();
 foreach (var site in configuracao.Sites.Where(s => s.ExePath != null && s.ExePath != "" && s.AutoExec).DistinctBy(s => s.BindUrls)
     .DistinctBy(s => ProcessarPath(s.ExePath!) + ProcessarPath(s.ExePathDiretorio ?? "") + s.ExeArgumentos + s.AutoFechar.ToString() + s.JanelaVisivel.ToString()))
@@ -99,9 +102,9 @@ foreach (var (listener, certificado) in tcpListeners)
 {
     tarefasListeners.Add(Task.Run(async () =>
     {
-        while (!app.Lifetime.ApplicationStopping.IsCancellationRequested)
+        while (!lifetime.ApplicationStopping.IsCancellationRequested)
         {
-            var client = await listener.AcceptTcpClientAsync(app.Lifetime.ApplicationStopping);
+            var client = await listener.AcceptTcpClientAsync(lifetime.ApplicationStopping);
             var clientStream = client.GetStream();
             if (clientStream.Socket.Poll(1, SelectMode.SelectRead) && !clientStream.DataAvailable) { clientStream.Socket.Dispose(); continue; }
             try { configuracao = new(); } catch { }
@@ -111,7 +114,7 @@ foreach (var (listener, certificado) in tcpListeners)
             _ = Task.Run(async () =>
             {
                 using var ctsAbort = new CancellationTokenSource();
-                using var ctsAbortLink = CancellationTokenSource.CreateLinkedTokenSource(app.Lifetime.ApplicationStopping, ctsAbort.Token);
+                using var ctsAbortLink = CancellationTokenSource.CreateLinkedTokenSource(lifetime.ApplicationStopping, ctsAbort.Token);
                 var url = "Destino inválido!";
                 using var clientTask = client;
                 await using var clientStreamTask = clientStream;
@@ -142,7 +145,7 @@ foreach (var (listener, certificado) in tcpListeners)
                     if (certificado != null)
                     { await sslStream.AuthenticateAsServerAsync(certificado, configuracao.SolicitarCertificadoCliente, SslProtocols.Tls12 | SslProtocols.Tls13, false); }
 
-                    using var scope = app.Services.CreateScope();
+                    using var scope = host.Services.CreateScope();
                     var protector = scope.ServiceProvider.GetRequiredService<IDataProtector>();
                     using HttpContextFromListener context = new(streamEmUso, clientStreamTask, sessionOptions, protector, configuracao.CompressionResponse, ctsAbortLink.Token);
                     httpContextStarted = true;
@@ -192,7 +195,7 @@ foreach (var (listener, certificado) in tcpListeners)
 }
 
 await Task.WhenAny(tarefasListeners);
-await app.StopAsync();
+await host.StopAsync();
 
 internal partial class Program
 {
