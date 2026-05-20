@@ -1,7 +1,7 @@
+using MicroProxy.DTOs;
 using MicroProxy.Extensions;
 using MicroProxy.Models;
 using Microsoft.AspNetCore.DataProtection;
-using MicroProxy.DTOs;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
