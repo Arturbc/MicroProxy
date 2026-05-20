@@ -92,7 +92,7 @@ var host = builder.Build();
 var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
 lifetime.ApplicationStopping.Register(OnShutdown);
 foreach (var mensagem in mensagens) { ExibirLog(mensagem); }
-_ = host.StartAsync();
+await host.StartAsync();
 configuracao.Sites.First().ExibirVariaveisDisponiveis();
 foreach (var site in configuracao.Sites.Where(s => s.ExePath != null && s.ExePath != "" && s.AutoExec).DistinctBy(s => s.BindUrls)
     .DistinctBy(s => ProcessarPath(s.ExePath!) + ProcessarPath(s.ExePathDiretorio ?? "") + s.ExeArgumentos + s.AutoFechar.ToString() + s.JanelaVisivel.ToString()))
