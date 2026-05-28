@@ -114,8 +114,8 @@ namespace MicroProxy.Models
                 CertificadoPrivadoSenha = senhaDecifrada;
             }
 
-            IPs = ConfigurationRoot.GetSection(nameof(IPs)).Get<string[]>() ?? [];
             IP = ConfigurationRoot.GetValue<string>(nameof(IP));
+            IPs = ConfigurationRoot.GetSection(nameof(IPs)).Get<string[]>() ?? [];
             ConexoesEscuta = ConfigurationRoot.GetSection(nameof(ConexoesEscuta)).Get<ConexaoEscutaDTO[]>() ?? ConexoesEscuta;
             IpsBloqueados = ConfigurationRoot.GetSection(nameof(IpsBloqueados)).Get<string[]>() ?? [];
             PortaHttp = ConfigurationRoot.GetValue<ushort?>(nameof(PortaHttp)) ?? 0;
