@@ -1,5 +1,4 @@
-﻿using MicroProxy.Extensions;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 namespace MicroProxy.Extensions
 {
