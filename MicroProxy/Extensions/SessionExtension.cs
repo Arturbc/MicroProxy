@@ -4,7 +4,7 @@ using System.Diagnostics;
 namespace MicroProxy.Extensions
 {
     [DebuggerNonUserCode]
-    public static class SessionExtensions
+    public static class SessionExtension
     {
         public static void SetObjectAsJson(this ISession session, string key, object value)
         {
