@@ -45,7 +45,6 @@ var urls = urlsEnv?.Split(';').OrderBy(u => u.StartsWith("https", StringComparis
     }).ToArray() ?? configuracao.ConexoesEscuta;
 List<(TcpListener listener, X509Certificate2? certificado)> tcpListeners = [];
 bool fonteUrlsConfig = urlsEnv == null;
-var certificadoStr = fonteUrlsConfig ? configuracao.CertificadoPrivado : null;
 List<string> mensagens = [];
 List<Task> tarefasListeners = [];
 List<IPAddress> enderecosIp = [];
@@ -53,6 +52,7 @@ bool https = false;
 
 foreach (var url in urls)
 {
+    var certificadoStr = fonteUrlsConfig ? url.CertificadoPrivado : null;
     var ipPorta = IpPortaRegex().Match(url.IP);
     Uri? uri = fonteUrlsConfig ? null : new(url.IP);
 
