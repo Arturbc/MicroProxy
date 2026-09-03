@@ -30,4 +30,13 @@
     </Content>
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="criar_servico.bat">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="remover_servico.bat">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
