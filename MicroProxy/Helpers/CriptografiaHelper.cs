@@ -191,7 +191,11 @@ namespace MicroProxy.Helpers
         }
 
         public static X509Certificate2 ObterCertificado(string path, string? senha = null, string? pathChave = null, string? ekuoid = null, bool exibirLog = false)
+            => ObterCertificado(path, senha, pathChave, ekuoid != null ? [ekuoid] : null, exibirLog);
+
+        public static X509Certificate2 ObterCertificado(string path, string? senha = null, string? pathChave = null, string[]? ekuoids = null, bool exibirLog = false)
         {
+            ekuoids ??= [];
             X509Certificate2? certificado = null;
             string pathArquivoCertificado = ProcessarPath(path);
             bool certificadoArquivo = File.Exists(pathArquivoCertificado);
@@ -209,7 +213,7 @@ namespace MicroProxy.Helpers
 
                 var agora = DateTime.Now;
                 var certificados = x509StoreUsuario.Certificates.Union(x509StorePC.Certificates)
-                    .Where(c => c.Extensions.Any(e => e is X509EnhancedKeyUsageExtension ekue && (ekuoid == null || ekue.EnhancedKeyUsages[ekuoid] != null)))
+                    .Where(c => ekuoids.Length == 0 || c.Extensions.All(e => e is not X509EnhancedKeyUsageExtension ekue || ekuoids.Any(ekuoid => ekue.EnhancedKeyUsages[ekuoid] != null)))
                     .OrderByDescending(c => c.NotAfter >= agora).ThenByDescending(c => c.NotBefore <= agora).ThenByDescending(c => c.NotAfter).ThenByDescending(c => c.NotBefore);
                 try { certificado = certificados.FirstOrDefault(c => c.Subject == certificadoPrivado) ?? certificados.First(c => c.Subject.Contains(certificadoPrivado)); }
                 catch (InvalidOperationException ex) { var e = ex; throw new($"Arquivo ou caminho de certificado \"{certificadoPrivado}\" inválido!", e); }
