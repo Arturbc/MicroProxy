@@ -435,7 +435,7 @@ namespace MicroProxy.Models
                                         site.Exception = site.Exception != null ? new AggregateException(site.Exception, ex) : ex;
                                     }
 
-                                    if (site.Exception != null || serverStream.DataAvailable) { await serverStreamEmUso.DisposeAsync(); }
+                                    try { if (site.Exception != null || serverStream.DataAvailable) { await serverStreamEmUso.DisposeAsync(); } } catch (ObjectDisposedException) { }
                                 }
                             }
                         }
