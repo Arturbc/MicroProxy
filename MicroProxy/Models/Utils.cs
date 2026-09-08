@@ -357,7 +357,8 @@ namespace MicroProxy.Models
                                         { requestMessage.Headers.TryAddWithoutValidation(header, ipRemotoFw); }
                                     }
 
-                                    site.ReqHeaders = JsonConvert.SerializeObject(requestMessage.Headers.NonValidated.OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
+                                    site.ReqHeaders = JsonConvert.SerializeObject(requestMessage.Headers.NonValidated.Concat(requestMessage.Content?.Headers.NonValidated ?? [])
+                                        .OrderBy(h => h.Key).ToDictionary(), Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
 
                                     using HttpClientHandler clientHandler = new() { AllowAutoRedirect = false, UseProxy = site.UsarProxy };
 
