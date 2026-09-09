@@ -190,10 +190,14 @@ namespace MicroProxy.Helpers
             return rsa;
         }
 
+        public static X509Certificate2 ObterCertificado(string path, string? ekuoid, bool exibirLog) => ObterCertificado(path, ekuoid != null ? [ekuoid] : null, exibirLog);
+
+        public static X509Certificate2 ObterCertificado(string path, string[]? ekuoids, bool exibirLog) => ObterCertificado(path, null, null, ekuoids, exibirLog);
+
         public static X509Certificate2 ObterCertificado(string path, string? senha = null, string? pathChave = null, string? ekuoid = null, bool exibirLog = false)
             => ObterCertificado(path, senha, pathChave, ekuoid != null ? [ekuoid] : null, exibirLog);
 
-        public static X509Certificate2 ObterCertificado(string path, string? senha = null, string? pathChave = null, string[]? ekuoids = null, bool exibirLog = false)
+        public static X509Certificate2 ObterCertificado(string path, string? senha, string? pathChave, string[]? ekuoids, bool exibirLog = false)
         {
             ekuoids ??= [];
             X509Certificate2? certificado = null;
