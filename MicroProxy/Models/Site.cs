@@ -30,6 +30,7 @@ namespace MicroProxy.Models
         private int? _bufferResp;
         private bool? _limitarPoolBuffer;
         private int? _segundosTempoMax;
+        private int? _msAtrasoEnvioBodyReq;
         private string? _exePath;
         private string? _exeArgumentos;
         private string? _exePathDiretorio;
@@ -194,6 +195,7 @@ namespace MicroProxy.Models
         public int BufferResp { get => _bufferResp ?? 0; set => _bufferResp ??= value; }
         public bool LimitarPoolBuffer { get => _limitarPoolBuffer ?? false; set => _limitarPoolBuffer ??= value; }
         public int SegundosTempoMax { get => _segundosTempoMax ?? 100; set => _segundosTempoMax = value; }
+        public int MsAtrasoEnvioBodyReq { get => _msAtrasoEnvioBodyReq ?? 0; set => _msAtrasoEnvioBodyReq = value; }
         public string? ExePath { get => _exePath; set => _exePath ??= !string.IsNullOrEmpty(value) ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePath; }
         public string? ExeArgumentos { get => _exeArgumentos; set => _exeArgumentos ??= !string.IsNullOrEmpty(value) ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exeArgumentos; }
         public string? ExePathDiretorio { get => _exePathDiretorio; set => _exePathDiretorio ??= !string.IsNullOrEmpty(value) ? CharsInvalidosPathArquivoRegex().Replace(value.ProcessarStringSubstituicao(this), "_") : _exePathDiretorio; }

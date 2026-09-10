@@ -192,7 +192,7 @@ namespace MicroProxy.Helpers
 
         public static X509Certificate2 ObterCertificado(string path, string? ekuoid, bool exibirLog) => ObterCertificado(path, ekuoid != null ? [ekuoid] : null, exibirLog);
 
-        public static X509Certificate2 ObterCertificado(string path, string[]? ekuoids, bool exibirLog) => ObterCertificado(path, null, null, ekuoids, exibirLog);
+        public static X509Certificate2 ObterCertificado(string path, string[]? ekuoids, bool exibirLog = false) => ObterCertificado(path, null, null, ekuoids, exibirLog);
 
         public static X509Certificate2 ObterCertificado(string path, string? senha = null, string? pathChave = null, string? ekuoid = null, bool exibirLog = false)
             => ObterCertificado(path, senha, pathChave, ekuoid != null ? [ekuoid] : null, exibirLog);

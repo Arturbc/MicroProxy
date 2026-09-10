@@ -29,10 +29,6 @@ namespace MicroProxy.Models
                 return null;
             }
         }
-        private static string[] HeadersProibidos => [];
-        private static string[] HeadersProibidosReq => [];
-        private static string[] HeadersProibidosResp => ["transfer-encoding", "connection", "keep-alive", "proxy-authenticate",
-            "proxy-authorization", "te", "trailer", "upgrade"];
         private static readonly Lock _lock = new();
         public static readonly HttpContextFromListenerAccessor HttpContextAccessor = new();
         private static ISession? Sessao => HttpContextAccessor.HttpContext?.Session;
@@ -109,8 +105,8 @@ namespace MicroProxy.Models
                                     || (!configuracao.Sites.Any(ss => ss.BindUrls != null
                                             && ss.BindUrls.Contains($"{urlAtual.Scheme}://{urlAtual.Authority}{partePathUrlAtual}", scr))
                                         && $"{urlDestino.Authority}{pathUrlDestino}".Equals($"{urlAtual.Authority}{partePathUrlAtual}", sc))
-                                    || (i == iMin && urlAbsoluta && !configuracao.Sites.Any(ss => ss.BindUrls != null
-                                            && ss.BindUrls.Where(bu => !bu.StartsWith('/') && !string.IsNullOrEmpty(bu)).Select(bu => new Uri(bu).Authority)
+                                    || (i == iMin && urlAbsoluta && !configuracao.Sites.Any(ss => ss.BindUrls == null
+                                            || ss.BindUrls.Where(bu => !bu.StartsWith('/') && !string.IsNullOrEmpty(bu)).Select(bu => new Uri(bu).Authority)
                                                 .Contains($"{urlAtual.Authority}", scr)) && $"{urlDestino.Host}".Equals($"{urlAtual.Host}", sc))
                                     )
                                 {
@@ -310,8 +306,7 @@ namespace MicroProxy.Models
                                                 tarefasAsync.Add(Task.Run(async () =>
                                                 {
                                                     using var memoryReq = new MemoryStream();
-                                                    var headersReq = request.Headers.Where(hr => !HeadersProibidos.Union(HeadersProibidosReq)
-                                                            .Any(hp => hr.Key.Equals(hp, sc))).ToDictionary(scr);
+                                                    var headersReq = request.Headers.ToDictionary(scr);
 
                                                     headersReq = site.ProcessarHeaders(headersReq, site.RequestHeadersAdicionais);
                                                     site.ReqHeaders = JsonConvert.SerializeObject(headersReq.OrderBy(h => h.Key).ToDictionary(scr), Formatting.None,
@@ -323,7 +318,11 @@ namespace MicroProxy.Models
                                                     try
                                                     {
                                                         await serverStreamEmUso.WriteAsync(Encoding.UTF8.GetBytes(cabecalho));
-                                                        if (request.Body.CanRead) { await request.Body.CopyToAsync(site.BufferReq, [serverStreamEmUso, memoryReq], context.RequestAborted); }
+                                                        if (request.Body.CanRead)
+                                                        {
+                                                            await Task.Delay(site.MsAtrasoEnvioBodyReq);
+                                                            await request.Body.CopyToAsync(site.BufferReq, [serverStreamEmUso, memoryReq], context.RequestAborted);
+                                                        }
                                                         if (serverStreamEmUso.CanWrite) { await serverStreamEmUso.FlushAsync(); }
                                                     }
                                                     catch (Exception ex) { site.Exception = ex; }
@@ -347,8 +346,7 @@ namespace MicroProxy.Models
 
                                                 using var memoryResp = new MemoryStream();
                                                 var serverResponse = new HttpResponseFromListener(serverStreamEmUso, serverStream, context, true);
-                                                var headersResposta = serverResponse.Headers.ToDictionary(h => h.Key, h => h.Value, scr)
-                                                        .Where(hr => !HeadersProibidos.Union(HeadersProibidosResp).Any(hp => hr.Key.Equals(hp, sc))).ToDictionary(scr);
+                                                var headersResposta = serverResponse.Headers.ToDictionary(h => h.Key, h => h.Value, scr);
 
                                                 response.StatusCode = serverResponse.StatusCode;
 

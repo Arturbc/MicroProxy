@@ -497,7 +497,7 @@ namespace MicroProxy.Models
             }
 
             cts?.Dispose();
-            var indexChunk = internalBuffer[1..].ToArray().IndexOf((byte)'\r');
+            var indexChunk = _httpPacote is HttpRequestFromListener ? -1 : internalBuffer[1..].ToArray().IndexOf((byte)'\r');
             var chunk = -1;
 
             if (indexChunk != -1)
