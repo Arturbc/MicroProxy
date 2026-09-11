@@ -235,10 +235,10 @@ namespace MicroProxy.Models
                             if (HttpMethods.IsOptions(request.Method))
                             {
                                 var tipoSite = site.GetType();
+                                response.Headers.AccessControlAllowHeaders = configuracao.AllowHeaders;
+                                response.Headers.AccessControlAllowMethods = configuracao.AllowMethods;
+                                response.Headers.AccessControlAllowOrigin = configuracao.AllowOrigins;
                                 response.StatusCode = StatusCodes.Status204NoContent;
-                                response.Headers.Append("Access-Control-Allow-Headers", configuracao.AllowHeaders);
-                                response.Headers.Append("Access-Control-Allow-Methods", configuracao.AllowMethods);
-                                response.Headers.Append("Access-Control-Allow-Origin", configuracao.AllowOrigins);
                             }
                             else
                             {

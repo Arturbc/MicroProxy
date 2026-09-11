@@ -132,9 +132,9 @@ namespace MicroProxy.Models
             AllowHeaders = ConfigurationRoot.GetSection($"Cors:{nameof(AllowHeaders)}").Get<string[]>() ?? [];
             AllowMethods = ConfigurationRoot.GetSection($"Cors:{nameof(AllowMethods)}").Get<string[]>() ?? [];
 
-            if (AllowOrigins.Length == 0) AllowOrigins = ["*"];
-            if (AllowHeaders.Length == 0) AllowHeaders = ["*"];
-            if (AllowMethods.Length == 0) AllowMethods = ["*"];
+            if (AllowOrigins.Length == 0) { AllowOrigins = ["*"]; }
+            if (AllowHeaders.Length == 0) { AllowHeaders = ["*"]; }
+            if (AllowMethods.Length == 0) { AllowMethods = ["*"]; }
 
             AvisosExibidos = true;
         }
