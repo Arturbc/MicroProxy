@@ -373,7 +373,7 @@ namespace MicroProxy.Models
                                 }
                                 else { valorTemp = valorTemp?.ProcessarStringSubstituicao(this, true); }
 
-                                valores.Add(valorTemp);
+                                if (!valores.Contains(valorTemp)) { valores.Add(valorTemp); }
                             }
                         }
 
@@ -386,9 +386,9 @@ namespace MicroProxy.Models
                 foreach (var header in headersAdicionais.Where(h => !h.Key.Equals("") && !keysCoringa.Any(k => !k.Equals("") && h.Key.EndsWith(k))
                     && !headersOriginais.ContainsKey(h.Key) && !headersAdicionais.Any(ha => ha.Key.Equals(h.Key, sc) && !ha.Key.Equals(h.Key, sc))))
                 {
-                    List<string?> valores = [];
-                    foreach (var valor in header.Value) { valores.Add(valor?.ProcessarStringSubstituicao(this)); }
-                    headersOriginais.Add(header.Key, [.. valores]);
+                    if (!headersOriginais.TryGetValue(header.Key, out var valoresOriginais)) { valoresOriginais = []; }
+                    var valores = header.Value.Select(v => v?.ProcessarStringSubstituicao(this)).Where(v => v != null && !valoresOriginais.Contains(v)).ToArray();
+                    headersOriginais.Add(header.Key, valores);
                 }
             }
 

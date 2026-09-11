@@ -154,6 +154,10 @@ namespace MicroProxy.Models
 
                 if (site != null && response.StatusCode == StatusCodes.Status200OK)
                 {
+                    response.Headers.AccessControlAllowHeaders = configuracao.AllowHeaders;
+                    response.Headers.AccessControlAllowMethods = configuracao.AllowMethods;
+                    response.Headers.AccessControlAllowOrigin = configuracao.AllowOrigins;
+
                     do
                     {
                         string? pathUrlAtualTemp = pathUrlCliente;
@@ -232,14 +236,7 @@ namespace MicroProxy.Models
                             request.Timeout = site.SegundosTempoMax;
                             response.Timeout = site.SegundosTempoMax;
 
-                            if (HttpMethods.IsOptions(request.Method))
-                            {
-                                var tipoSite = site.GetType();
-                                response.Headers.AccessControlAllowHeaders = configuracao.AllowHeaders;
-                                response.Headers.AccessControlAllowMethods = configuracao.AllowMethods;
-                                response.Headers.AccessControlAllowOrigin = configuracao.AllowOrigins;
-                                response.StatusCode = StatusCodes.Status204NoContent;
-                            }
+                            if (HttpMethods.IsOptions(request.Method)) { response.StatusCode = StatusCodes.Status204NoContent; }
                             else
                             {
                                 var pathDiretorioArquivo = "";
@@ -354,7 +351,8 @@ namespace MicroProxy.Models
                                                 {
                                                     site.RespHeadersPreAjuste = JsonConvert.SerializeObject(headersResposta.OrderBy(h => h.Key).ToDictionary(scr),
                                                         Formatting.None, new JsonSerializerSettings() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
-                                                    headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais);
+                                                    headersResposta = site.ProcessarHeaders(headersResposta, site.ResponseHeadersAdicionais).ToDictionary(h => h.Key,
+                                                        h => new StringValues([.. h.Value.Where(v => response.Headers.TryGetValue(h.Key, out var headerValues) && !headerValues.Contains(v))]));
 
                                                     foreach (var header in headersResposta.Where(h => h.Value.Count != 0))
                                                     { if (!response.Headers.TryAdd(header.Key, header.Value)) { response.Headers.Append(header.Key, header.Value); } }
