@@ -80,9 +80,6 @@ namespace MicroProxy.Models
         public string? TratamentoErroInterno { get; protected set; }
         public string[] ExtensoesUrlNaoRecurso { get; protected set; }
         public Site[] Sites { get; protected set; }
-        public string[] AllowOrigins { get; protected set; }
-        public string[] AllowHeaders { get; protected set; }
-        public string[] AllowMethods { get; protected set; }
 
         static Configuracao() { if (WindowsServiceHelpers.IsWindowsService()) { Directory.SetCurrentDirectory(AppContext.BaseDirectory); } }
 
@@ -128,14 +125,6 @@ namespace MicroProxy.Models
             SemDelay = ConfigurationRoot.GetValue<bool>(nameof(SemDelay));
             ExtensoesUrlNaoRecurso = ConfigurationRoot.GetSection(nameof(ExtensoesUrlNaoRecurso)).Get<string[]>() ?? [];
             Sites = ConfigurationRoot.GetSection(nameof(Sites)).Get<Site[]>()!;
-            AllowOrigins = ConfigurationRoot.GetSection($"Cors:{nameof(AllowOrigins)}").Get<string[]>() ?? [];
-            AllowHeaders = ConfigurationRoot.GetSection($"Cors:{nameof(AllowHeaders)}").Get<string[]>() ?? [];
-            AllowMethods = ConfigurationRoot.GetSection($"Cors:{nameof(AllowMethods)}").Get<string[]>() ?? [];
-
-            if (AllowOrigins.Length == 0) { AllowOrigins = ["*"]; }
-            if (AllowHeaders.Length == 0) { AllowHeaders = ["*"]; }
-            if (AllowMethods.Length == 0) { AllowMethods = ["*"]; }
-
             AvisosExibidos = true;
         }
     }
