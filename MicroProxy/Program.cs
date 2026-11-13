@@ -153,7 +153,7 @@ foreach (var (listener, certificado) in tcpListeners)
                     accessor.HttpContext = context;
                     var uri = new Uri(context.Request.GetDisplayUrl());
                     url = uri.Authority;
-                    ExibirLog($"URL de conexão solicitado: {url}");
+                    ExibirLog($"URL de conexão solicitado: {context.Request.Method},{url}");
 
                     await context.ProcessarRequisicaoAsync(configuracao);
                 }

@@ -156,8 +156,10 @@ namespace MicroProxy.Models
                 {
                     do
                     {
-                        string? pathUrlAtualTemp = pathUrlCliente;
+                        var pathUrlAtualTemp = pathUrlCliente;
                         string? pathUrlDestino = null;
+
+                        if (string.IsNullOrEmpty(site.UrlDestino)) { site.UrlDestino = context.Request.GetDisplayUrl(); }
 
                         urlDestino = new(site.UrlDestino);
                         ExibirLog($"URL de destino: {Site.ExibirUrlAjustada(HttpMethods.IsConnect(request.Method) ? urlDestino.Authority : urlDestino.OriginalString)}");
